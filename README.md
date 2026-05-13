@@ -1,36 +1,215 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Faselu（ファセル）
 
-## Getting Started
+**自分と向き合う、30 分。**
 
-First, run the development server:
+[https://faselu.vercel.app](https://faselu.vercel.app)（デプロイ後に差し替え）
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## このサービスは何か
+
+Faselu は、AI と 1 対 1 で対話しながら、**自分自身を深く掘り下げていく自己分析セッション**です。
+
+ボタンを押せば数秒で結果が出る「診断ツール」ではありません。あらかじめ用意されたいくつかのタイプのどれかに振り分けるものでも、強みのラベルを並べて終わるものでもありません。
+
+このサービスがやろうとしているのは、ただ一つ。
+
+> **「自分は何者か」を問う 30 分を、ちゃんと使ってもらうこと。**
+
+AI が代わりに答えを出してくれるわけではありません。AI は逃げずに付き合うだけで、考えるのは最後まで自分です。
+
+---
+
+## なぜ作ったか
+
+世の中の AI ツールはほとんどが「効率化・時短・便利」に向かっています。人間がやるべきことを AI が肩代わりする方向です。
+
+Faselu はその逆を狙っています。
+
+> **人間がやるべきことから、AI が逃げずに付き合う。**
+
+自分と向き合うことは、本来とても面倒で、時間がかかって、しんどい作業です。それを AI が「効率化」してしまうと、結局何も残らない。だから Faselu はあえて時間をかけ、あえて踏み込み、あえて答えにくいことを聞きます。
+
+---
+
+## 体験の特徴
+
+### 1. 30 分、本気で向き合う対話
+
+セッションはチャット形式で約 30 分。AI は次のような姿勢で対話を進めます。
+
+- **褒めるだけにしない**
+- **一般論やテンプレ説明で終わらせない**
+- **良い面と悪い面の両方を分析する**
+- **矛盾や未熟な部分も指摘する**
+- **無難な共感や慰めを優先しない**
+- **楽な答えに逃げたら指摘する**
+- **抽象的な回答には必ず具体例を求める**
+
+冒頭で AI はこう宣言します。
+
+> これから 30 分、あなたと本気で向き合います。
+> 楽な答えで流すことはしません。
+> 答えにくい質問もします。
+> 30 分後、あなたは少し疲れていると思います。
+> でもそれが、ちゃんと考えた証拠です。
+
+### 2. 時間配分
+
+```
+ 0– 5 分: 導入と最初の質問（性格・価値観）
+ 5–15 分: 過去の選択・コンプレックス・避けてきたもの
+15–25 分: 恋愛・対人・無意識のパターン
+25–30 分: 統合分析と最後の「気づき」の言語化
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+最後の 5 分は単なるまとめではなく、対話全体を踏まえて **「本人がまだ気づいていない核心」を 1 つ提示** する設計になっています。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. 統合的な分析フレームワーク
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+心理分析・認知分析・行動分析を統合した深掘り型のアナリストとして、LLM が以下の視点を組み合わせます。
 
-## Learn More
+- Big Five などの性格特性モデルによる性格分析
+- 認知パターン分析・行動心理
+- 対人関係分析・愛着傾向
+- 会話分析・価値観分析
+- 無意識のパターン分析
 
-To learn more about Next.js, take a look at the following resources:
+（西洋占星術は個人情報リスクのため使いません）
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 4. ふたつのアウトプット
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+セッション終了時、2 種類の成果物が生成されます。
 
-## Deploy on Vercel
+#### カード（持ち歩く用 / シェア用）
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- 3:4 縦長の黒い厚紙のグリーティングカード風
+- 縁は AI が分析結果から選んだ **個別の色のグラデーション**
+- 載せる項目:
+  - **キーフレーズ**: その人を象徴する一文
+  - **CHARACTERISTICS**: 特徴 3 点（抽象度を上げる）
+  - **QUESTION TO SELF**: これから自分に問い続けるべき問い 1 つ
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+シェアは煽りません。SNS シェアボタンは置かず、「**信頼している人にだけ見せてください**」と添えています。
+
+#### 詳細レポート（本人だけが見る）
+
+弱み・コンプレックス・無意識のパターン・矛盾も含む、AI の全分析を本人専用に整形したもの。PDF として書き出せます。
+
+### 5. 縁の色は、その人専用に生成される
+
+カードの縁のグラデーションは、AI が分析テキストから核となる性質を 2〜4 個抽出し、それぞれを色に翻訳して組み合わせます。色域に縛りはなく、淡い色・鮮やかな色・パステル・ネオン・メタリックまで含めて、毎回その人専用の色が決まります。
+
+線形・放射状・円錐などのグラデーションパターンも、その人の性質に合わせて選ばれます。
+
+---
+
+## サービスのスタンス
+
+### 会話内容はサーバーに保存しない
+
+セッション中の会話は AI とのリクエスト・レスポンスにのみ使われ、サーバーに永続化されません。ブラウザを閉じればセッションは消えます。
+
+---
+
+## 想定する利用者
+
+「自分を知りたい」と思う人なら、年齢・職業・状況は問いません。
+
+入り口は広く設計し、体験の深さで自然に篩い分ける方針です。重ければ離脱して構わないし、合わなければそれでいいというスタンスです。
+
+> ⚠️ **注意**: 踏み込んだ指摘を含むセッションです。**心身が弱っている状態のときは利用を控えてください。**
+
+---
+
+## 技術スタック
+
+- [Next.js 16](https://nextjs.org/)（App Router）
+- [React 19](https://react.dev/)
+- [Tailwind CSS 4](https://tailwindcss.com/)
+- [Vercel AI SDK](https://sdk.vercel.ai/) + [Google Generative AI (Gemini)](https://ai.google.dev/)
+- [@react-pdf/renderer](https://react-pdf.org/)（PDF 生成）
+- TypeScript
+
+---
+
+## セットアップ
+
+### 必要なもの
+
+- Node.js 20 以上
+- Google AI Studio で発行した Gemini API キー（[取得はこちら](https://aistudio.google.com/apikey)）
+
+### 手順
+
+```bash
+# 依存関係のインストール
+npm install
+
+# 環境変数の設定
+cp .env.local.example .env.local
+# .env.local を開き、GOOGLE_GENERATIVE_AI_API_KEY に取得した API キーを設定
+
+# 開発サーバーの起動
+npm run dev
+```
+
+ブラウザで [http://localhost:3000](http://localhost:3000) を開きます。
+
+---
+
+## 環境変数
+
+| 変数名 | 必須 | 説明 |
+| --- | --- | --- |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | ✅ | Google AI Studio で発行した Gemini API キー |
+
+---
+
+## スクリプト
+
+| コマンド | 用途 |
+| --- | --- |
+| `npm run dev` | 開発サーバー起動 |
+| `npm run build` | 本番ビルド |
+| `npm run start` | 本番サーバー起動（要 `build` 済み） |
+
+---
+
+## ディレクトリ構成
+
+```
+app/
+  page.tsx              # トップページ（ランディング）
+  session/
+    page.tsx            # セッション画面（AI とのチャット）
+    result/page.tsx     # 結果表示画面（カード + 詳細レポート）
+  api/
+    chat/route.ts       # Gemini API への中継エンドポイント
+components/
+  Card.tsx              # 結果カード
+  ChatBubble.tsx        # チャット吹き出し
+  ReportPdf.tsx         # PDF レポート
+lib/
+  prompt.ts             # AI に渡すベースプロンプト
+  parse-report.ts       # 分析レポートのパース
+  parse-result.ts       # 結果データのパース
+  types.ts              # 型定義
+public/fonts/           # Noto Sans JP（PDF 用）
+```
+
+---
+
+## デプロイ
+
+Vercel での運用を想定しています。
+
+1. Vercel ダッシュボードでこのリポジトリを Import
+2. Environment Variables に `GOOGLE_GENERATIVE_AI_API_KEY` を設定
+3. Deploy
+
+---
+
+## ライセンス
+
+未定。
