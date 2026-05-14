@@ -1,16 +1,31 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { useEffect, useRef, useState } from "react";
+import { type UIMessage } from "ai";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChatBubble, TypingBubble } from "@/components/ChatBubble";
-import { OPENING_DECLARATION } from "@/lib/prompt";
+import { AnalyzingOverlay } from "@/components/session/AnalyzingOverlay";
+import { ConfirmOverlay } from "@/components/session/ConfirmOverlay";
+import { ContinueButton } from "@/components/session/ContinueButton";
+import { DebugPanel } from "@/components/session/DebugPanel";
+import { ExitConfirmModal } from "@/components/session/ExitConfirmModal";
+import { SafetyTerminatedView } from "@/components/session/SafetyTerminatedView";
+import { Toast } from "@/components/session/Toast";
 import {
-  isSafetyTerminate,
-  parseSessionResult,
+  FINAL_MODE_MARKER,
+  FINAL_START_TOKEN,
+  NEXT_TURN_CARD_JSON_TOKEN,
+  REPORT_DONE_TOKEN,
+  hasReportDone,
+  looksTruncated,
 } from "@/lib/parse-result";
-import { DEBUG_MOCK_RESULT } from "@/lib/debug-mock";
+import { clearHistory } from "@/lib/session/history-storage";
+import { useEscapeKey } from "@/lib/session/use-escape-key";
+import { useFinalAnalysis } from "@/lib/session/use-final-analysis";
+import { useScrollHint } from "@/lib/session/use-scroll-hint";
+import { useSessionChat } from "@/lib/session/use-session-chat";
+import { useThinkingDelay } from "@/lib/session/use-thinking-delay";
+import { useToast } from "@/lib/session/use-toast";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
@@ -20,76 +35,167 @@ const textOf = (m: UIMessage): string =>
     .map((p) => p.text)
     .join("");
 
+const isFinalModeText = (text: string): boolean =>
+  text.includes(FINAL_START_TOKEN) ||
+  text.includes(FINAL_MODE_MARKER) ||
+  text.includes(REPORT_DONE_TOKEN) ||
+  /```json/.test(text);
+
 export default function SessionPage() {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [terminated, setTerminated] = useState<"safety" | null>(null);
   const [askExit, setAskExit] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [hadAbort, setHadAbort] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const toast = useToast();
+
+  const handleError = useCallback(
+    (err: Error) => {
+      if (err.message) toast.show("通信エラーが発生しました");
+    },
+    [toast],
+  );
+
+  const { messages, sendMessage, status, error } = useSessionChat({
+    pausePersist: showConfirm || terminated !== null,
+    onError: handleError,
+  });
+
+  const onSafety = useCallback(() => setTerminated("safety"), []);
+  const onComplete = useCallback(() => setShowConfirm(true), []);
+  const onStuck = useCallback(() => setHadAbort(true), []);
+
+  const finalAnalysis = useFinalAnalysis({
+    messages,
+    status,
+    sendMessage,
+    textOf,
+    onSafetyTerminate: onSafety,
+    onComplete,
+    onStuck,
+  });
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    const max = 240;
+    const max = 200;
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   }, [input]);
 
-  const { messages, sendMessage, status } = useChat<UIMessage>({
-    transport: new DefaultChatTransport<UIMessage>(),
-    messages: [
-      {
-        id: "opening",
-        role: "assistant" as const,
-        parts: [
-          {
-            type: "text",
-            text: OPENING_DECLARATION,
-          },
-        ],
-      },
-    ],
-  });
-
-  const userHasSpoken = messages.some((m) => m.role === "user");
+  const userHasSpoken = messages.some(
+    (m) => m.role === "user" && textOf(m) !== NEXT_TURN_CARD_JSON_TOKEN,
+  );
   const aiHasReplied = messages.some(
     (m) => m.role === "assistant" && m.id !== "opening",
   );
 
-  const FINAL_MODE_MARKER = "## あなたという人間の構造";
   const lastAssistant = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && m.id !== "opening");
-  const isFinalizing =
-    !!lastAssistant && textOf(lastAssistant).includes(FINAL_MODE_MARKER);
+  const lastAssistantText = lastAssistant ? textOf(lastAssistant) : "";
+  const isFinalizing = isFinalModeText(lastAssistantText);
+
+  const showThinking = useThinkingDelay(status);
+  const lastAssistantId = lastAssistant?.id;
+
+  useEffect(() => {
+    if (status === "error") {
+      setHadAbort(true);
+      return;
+    }
+    if (status === "submitted" || status === "streaming") {
+      setHadAbort(false);
+      return;
+    }
+    if (status === "ready" && lastAssistant) {
+      if (looksTruncated(lastAssistantText)) {
+        setHadAbort(true);
+      }
+    }
+  }, [status, lastAssistant, lastAssistantText]);
+
+  // LINE 風スクロール。
+  // - ユーザーが「最下部付近」に居る限り、新着メッセージや段落フェードインで自動追従する
+  // - ユーザーが手動で上にスクロールしたら追従を止める
+  // - プログラム由来のスクロールは無視する（自動追従後の scroll イベントで誤って解除しないため）
+  // DOM の高さ変化を ResizeObserver/MutationObserver で監視し、
+  // messages の更新タイミングに依存せず段落フェードインのたびに追従させる。
+  const stickToBottomRef = useRef(true);
+  const programmaticScrollUntilRef = useRef(0);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const goToBottom = () => {
+      programmaticScrollUntilRef.current = Date.now() + 800;
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
+    };
+
+    const onScroll = () => {
+      if (Date.now() < programmaticScrollUntilRef.current) return;
+      const distFromBottom =
+        container.scrollHeight - container.clientHeight - container.scrollTop;
+      stickToBottomRef.current = distFromBottom < 100;
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+
+    const maybeFollow = () => {
+      if (!stickToBottomRef.current) return;
+      const distFromBottom =
+        container.scrollHeight - container.clientHeight - container.scrollTop;
+      if (distFromBottom > 0) goToBottom();
+    };
+
+    // 子要素のサイズ変化（段落の出現、フェードインで高さが伸びる等）
+    const ro = new ResizeObserver(maybeFollow);
+    Array.from(container.children).forEach((child) => ro.observe(child));
+    // 子要素の追加・削除（新しいバブルが追加される）も監視
+    const mo = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        m.addedNodes.forEach((n) => {
+          if (n instanceof Element) ro.observe(n);
+        });
+      }
+      maybeFollow();
+    });
+    mo.observe(container, { childList: true });
+
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     const last = messages[messages.length - 1];
-    if (!last || last.role !== "assistant") return;
-    const text = textOf(last);
-    if (!text) return;
-
-    if (isSafetyTerminate(text)) {
-      setTerminated("safety");
-      return;
+    const container = scrollRef.current;
+    if (!last || !container) return;
+    if (last.role === "user") {
+      stickToBottomRef.current = true;
+      programmaticScrollUntilRef.current = Date.now() + 800;
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
     }
+  }, [messages]);
 
-    if (status === "ready") {
-      const result = parseSessionResult(text);
-      if (result) {
-        sessionStorage.setItem("faselu-result", JSON.stringify(result));
-        router.replace("/session/result");
-      }
-    }
-  }, [messages, status, router]);
+  useEscapeKey(askExit, () => setAskExit(false));
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages, status]);
+  const showScrollHint = useScrollHint(
+    scrollRef,
+    userHasSpoken || aiHasReplied,
+  );
 
   const submit = () => {
     const text = input.trim();
@@ -103,53 +209,36 @@ export default function SessionPage() {
     submit();
   };
 
+  const requestContinue = () => {
+    if (status !== "ready") return;
+    setHadAbort(false);
+    if (
+      finalAnalysis.isAwaitingCardJson() ||
+      hasReportDone(lastAssistantText)
+    ) {
+      finalAnalysis.requestCardJson();
+      return;
+    }
+    sendMessage({ text: "直前の発言の続きを、そのまま書いてください。" });
+  };
+
   const confirmExit = () => {
     sessionStorage.removeItem("faselu-result");
+    clearHistory();
     router.replace("/");
   };
 
   if (terminated === "safety") {
-    return (
-      <main className="flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-[520px]">
-          <p
-            className="font-serif-jp text-[16px] leading-[2.1]"
-            style={{ color: "var(--color-ink-text)", whiteSpace: "pre-wrap" }}
-          >
-            ここまで話してくれてありがとう。
-            {"\n"}
-            ただ、今のあなたが必要としているのは、
-            {"\n"}
-            このサービスのような踏み込んだ分析ではなく、
-            {"\n"}
-            信頼できる人や、専門的な支援だと感じました。
-            {"\n\n"}
-            このセッションはここで終わります。
-            {"\n"}
-            ここまでの会話は保存されません。
-            {"\n\n"}
-            どうか、自分を大事にしてください。
-          </p>
-          <div className="mt-12">
-            <a
-              href="/"
-              className="font-serif-jp inline-block text-[14px] gold-underline pb-[2px]"
-              style={{ color: "var(--color-ink-text)" }}
-            >
-              トップへ戻る
-            </a>
-          </div>
-        </div>
-      </main>
-    );
+    return <SafetyTerminatedView />;
   }
 
+  const showContinueButton =
+    hadAbort && status === "ready" && !isFinalizing && !showConfirm;
+  const showInputArea = userHasSpoken || aiHasReplied;
+
   return (
-    <main
-      className="flex flex-col w-full max-w-[720px] mx-auto px-4 sm:px-6"
-      style={{ height: "100dvh" }}
-    >
-      <header className="shrink-0 py-6 flex items-center justify-between">
+    <main className="flex flex-col w-full max-w-[720px] mx-auto px-4 sm:px-6 h-app-frame">
+      <header className="shrink-0 py-5 flex items-center justify-between">
         <span
           className="text-[11px] tracking-[0.2em]"
           style={{ color: "var(--color-muted-3)" }}
@@ -159,79 +248,71 @@ export default function SessionPage() {
         <button
           type="button"
           onClick={() => setAskExit(true)}
-          className="text-[11px] tracking-[0.15em]"
-          style={{ color: "var(--color-muted-3)" }}
+          className="tap-target px-2 -mr-2 text-[12px] tracking-[0.15em] gold-underline pb-[2px]"
+          style={{ color: "var(--color-muted-1)" }}
         >
           分析を止める
         </button>
       </header>
 
       {IS_DEV && (
-        <div
-          className="shrink-0 mb-4 px-3 py-2 text-[11px] flex gap-4 items-center"
-          style={{
-            border: "1px dashed #c44",
-            color: "#c44",
-            borderRadius: 8,
+        <DebugPanel
+          status={status}
+          onForceFinal={() => {
+            if (status !== "ready") return;
+            sendMessage({
+              text: "[DEBUG] 9 領域カバー判定は無視して、今すぐ最終統合分析モードに入ってください。直前の会話を踏まえて、まずターン 1 として詳細レポートを書き、末尾に <<REPORT_DONE>> を置いてください。",
+            });
           }}
-        >
-          <span className="font-bold tracking-[0.1em]">DEBUG</span>
-          <button
-            type="button"
-            onClick={() => {
-              if (status !== "ready") return;
-              sendMessage({
-                text: "[DEBUG] 深掘り基準は無視して、今すぐ最終統合分析モードに入ってください。直前の会話を踏まえて、詳細レポートと末尾のカード用 JSON を出力してください。",
-              });
-            }}
-            disabled={status !== "ready"}
-            className="underline disabled:opacity-40"
-          >
-            最終分析を強制発動（実 LLM）
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              sessionStorage.setItem(
-                "faselu-result",
-                JSON.stringify(DEBUG_MOCK_RESULT),
-              );
-              router.push("/session/result");
-            }}
-            className="underline"
-          >
-            ダミー結果画面へ（API 不要）
-          </button>
-        </div>
+        />
       )}
 
       <div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto py-4 flex flex-col gap-4"
+        style={{ scrollPaddingBottom: "120px" }}
       >
         {messages.map((m) => {
           const text = textOf(m);
           if (!text) return null;
           if (text === "準備できました。はじめてください。") return null;
+          if (text === NEXT_TURN_CARD_JSON_TOKEN) return null;
           if (m.id === "opening" && aiHasReplied) return null;
-          if (
+          if (m.role === "assistant" && isFinalModeText(text)) return null;
+          // ストリーミング中の最新 AI バブルだけ、フェードイン演出する。
+          // 既に完成した過去のバブルや、復元された履歴はフェードなし。
+          const isStreamingAssistant =
             m.role === "assistant" &&
-            text.includes(FINAL_MODE_MARKER)
-          )
-            return null;
+            m.id === lastAssistantId &&
+            (status === "submitted" || status === "streaming");
           return (
             <ChatBubble
               key={m.id}
               role={m.role === "user" ? "user" : "assistant"}
               text={text}
+              fade={isStreamingAssistant}
             />
           );
         })}
-        {status === "submitted" && !isFinalizing && <TypingBubble />}
+        {showThinking && !isFinalizing && <TypingBubble />}
+        {showContinueButton && (
+          <ContinueButton
+            onClick={requestContinue}
+            hasNetworkError={!!error?.message}
+          />
+        )}
       </div>
 
-      {!userHasSpoken ? (
-        <div className="shrink-0 py-10 flex justify-center">
+      {!showInputArea ? (
+        <div className="shrink-0 py-8 flex flex-col items-center gap-2 relative">
+          {showScrollHint && (
+            <div
+              className="absolute -top-6 text-[11px] tracking-[0.15em] fade-in"
+              style={{ color: "var(--color-muted-3)" }}
+            >
+              ↓ もう少し読む
+            </div>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -239,16 +320,24 @@ export default function SessionPage() {
               sendMessage({ text: "準備できました。はじめてください。" });
             }}
             disabled={status !== "ready"}
-            className="font-serif-jp text-[17px] tracking-[0.2em] gold-underline pb-[4px] disabled:opacity-40"
+            className="tap-target font-serif-jp text-[17px] tracking-[0.2em] gold-underline pb-[4px] disabled:opacity-40"
             style={{ color: "var(--color-ink-text)" }}
           >
             最初の質問へ
           </button>
+          {status !== "ready" && (
+            <span
+              className="text-[11px]"
+              style={{ color: "var(--color-muted-3)" }}
+            >
+              準備しています…
+            </span>
+          )}
         </div>
       ) : (
         <form
           onSubmit={onSubmit}
-          className="shrink-0 py-6 flex gap-3 items-end border-t"
+          className="shrink-0 py-5 flex gap-3 items-end border-t safe-pad"
           style={{ borderColor: "var(--color-line-on-dark)" }}
         >
           <textarea
@@ -256,6 +345,11 @@ export default function SessionPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
+              const isCoarsePointer =
+                typeof window !== "undefined" &&
+                window.matchMedia("(hover: none) and (pointer: coarse)")
+                  .matches;
+              if (isCoarsePointer) return;
               if (
                 e.key === "Enter" &&
                 !e.shiftKey &&
@@ -268,21 +362,22 @@ export default function SessionPage() {
             rows={2}
             placeholder={
               status === "ready"
-                ? "答える（できるだけ具体的に。Enter で送信 / Shift+Enter で改行）"
+                ? "答える（できるだけ具体的に）"
                 : "AI が考え中…"
             }
-            className="flex-1 resize-none bg-transparent outline-none text-[15px] leading-[1.8] py-2 overflow-y-auto"
+            className="flex-1 resize-none bg-transparent outline-none text-[16px] leading-[1.8] py-2 overflow-y-auto"
             style={{
               borderBottom: "1px solid var(--color-line-on-dark)",
               fontFamily: "var(--font-noto-sans-jp), sans-serif",
               color: "var(--color-ink-text)",
-              maxHeight: "240px",
+              maxHeight: "200px",
+              fontSize: "16px",
             }}
           />
           <button
             type="submit"
             disabled={status !== "ready" || !input.trim()}
-            className="text-[18px] gold-text font-bold pb-2 disabled:opacity-30"
+            className="tap-target px-2 -mr-2 text-[20px] gold-text font-bold disabled:opacity-30"
             aria-label="送信"
           >
             →
@@ -290,87 +385,17 @@ export default function SessionPage() {
         </form>
       )}
 
-      {isFinalizing && (
-        <div
-          className="fixed inset-0 z-20 flex items-center justify-center px-6"
-          style={{ backgroundColor: "rgba(10, 10, 12, 0.95)" }}
-        >
-          <div className="text-center">
-            <div
-              className="text-[11px] tracking-[0.3em] gold-text font-bold mb-6"
-              style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
-            >
-              ANALYZING
-            </div>
-            <p
-              className="font-serif-jp text-[17px] leading-[2.1] mb-10"
-              style={{ color: "var(--color-ink-text)" }}
-            >
-              分析しています。
-              <br />
-              そのまま待ってください。
-            </p>
-            <div className="inline-flex gap-[6px] items-center">
-              <span
-                className="typing-dot inline-block w-[6px] h-[6px] rounded-full"
-                style={{ backgroundColor: "var(--color-ink-text-soft)" }}
-              />
-              <span
-                className="typing-dot inline-block w-[6px] h-[6px] rounded-full"
-                style={{ backgroundColor: "var(--color-ink-text-soft)" }}
-              />
-              <span
-                className="typing-dot inline-block w-[6px] h-[6px] rounded-full"
-                style={{ backgroundColor: "var(--color-ink-text-soft)" }}
-              />
-            </div>
-          </div>
-        </div>
+      {isFinalizing && !showConfirm && <AnalyzingOverlay />}
+      {showConfirm && (
+        <ConfirmOverlay onConfirm={() => router.replace("/session/result")} />
       )}
-
       {askExit && (
-        <div
-          className="fixed inset-0 z-10 flex items-center justify-center px-6"
-          style={{ backgroundColor: "rgba(10, 10, 12, 0.85)" }}
-        >
-          <div
-            className="rounded-[24px] p-10 max-w-[420px] w-full"
-            style={{
-              backgroundColor: "rgba(20, 20, 24, 0.95)",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-            }}
-          >
-            <p
-              className="font-serif-jp text-[15px] leading-[2] mb-8"
-              style={{ color: "var(--color-ink-text)" }}
-            >
-              ここで止めると、ここまでの会話は破棄され、
-              <br />
-              分析結果も発行されません。
-              <br />
-              本当にやめますか？
-            </p>
-            <div className="flex gap-6 items-center">
-              <button
-                type="button"
-                onClick={confirmExit}
-                className="font-serif-jp text-[13px] gold-underline pb-[2px]"
-                style={{ color: "var(--color-ink-text)" }}
-              >
-                止める
-              </button>
-              <button
-                type="button"
-                onClick={() => setAskExit(false)}
-                className="font-serif-jp text-[13px]"
-                style={{ color: "var(--color-muted-1)" }}
-              >
-                続ける
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExitConfirmModal
+          onConfirm={confirmExit}
+          onCancel={() => setAskExit(false)}
+        />
       )}
+      {toast.message && <Toast message={toast.message} />}
     </main>
   );
 }
