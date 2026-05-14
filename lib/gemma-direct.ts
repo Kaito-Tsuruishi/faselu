@@ -1,0 +1,251 @@
+import type { ModelMessage } from "ai";
+
+const ENDPOINT_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+type GeminiPart = { text?: string; thought?: boolean };
+type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
+type GeminiStreamChunk = {
+  candidates?: Array<{
+    content?: { parts?: GeminiPart[]; role?: string };
+    finishReason?: string;
+  }>;
+};
+
+type StreamGemmaArgs = {
+  model: string;
+  apiKey: string;
+  system: string;
+  messages: ModelMessage[];
+  temperature?: number;
+  signal?: AbortSignal;
+};
+
+function toGeminiContents(messages: ModelMessage[]): GeminiContent[] {
+  const out: GeminiContent[] = [];
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    const role = m.role === "assistant" ? "model" : "user";
+    const content = m.content;
+    const parts: GeminiPart[] = [];
+    if (typeof content === "string") {
+      parts.push({ text: content });
+    } else if (Array.isArray(content)) {
+      for (const c of content) {
+        if (c && typeof c === "object" && "type" in c && c.type === "text" && typeof (c as { text?: unknown }).text === "string") {
+          parts.push({ text: (c as { text: string }).text });
+        }
+      }
+    }
+    if (parts.length > 0) out.push({ role, parts });
+  }
+  return out;
+}
+
+function takeEvent(buf: string): [string | null, string] {
+  const i1 = buf.indexOf("\r\n\r\n");
+  const i2 = buf.indexOf("\n\n");
+  let sep = -1;
+  let sepLen = 0;
+  if (i1 >= 0 && (i2 < 0 || i1 <= i2)) {
+    sep = i1;
+    sepLen = 4;
+  } else if (i2 >= 0) {
+    sep = i2;
+    sepLen = 2;
+  }
+  if (sep < 0) return [null, buf];
+  return [buf.slice(0, sep), buf.slice(sep + sepLen)];
+}
+
+function parseDataLine(eventBlock: string): string | null {
+  const lines = eventBlock.split(/\r?\n/);
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5));
+  }
+  if (dataLines.length === 0) return null;
+  return dataLines.join("\n");
+}
+
+export async function streamGemmaResponse({
+  model,
+  apiKey,
+  system,
+  messages,
+  temperature,
+  signal,
+}: StreamGemmaArgs): Promise<Response> {
+  const url = `${ENDPOINT_BASE}/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: toGeminiContents(messages),
+    ...(typeof temperature === "number"
+      ? { generationConfig: { temperature } }
+      : {}),
+  };
+
+  const upstream = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    const errText = await upstream.text().catch(() => "");
+    return new Response(
+      `Gemma upstream error ${upstream.status}: ${errText}`,
+      { status: 502 },
+    );
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const reader = upstream.body.getReader();
+  const textId = `gemma-text-${Date.now()}`;
+
+  const FINAL_START_TOKEN = "<<FINAL_START>>";
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const writeEvent = (obj: unknown) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      };
+
+      let textStarted = false;
+      let buf = "";
+
+      // <<FINAL_START>> 制御。
+      // - finalSeen=false の間、出力末尾が `<<FINAL_START>>` のプレフィックスに
+      //   一致しうる範囲だけを `pending` に保留してから残りを流す。
+      //   こうすればトークン直前の前置き文がチラ見えしない一方、通常チャットでは
+      //   保留が数文字以内で済むためストリーミング体感は維持される。
+      // - 一度 `<<FINAL_START>>` が見つかったら、それ以前のテキストは全部破棄して
+      //   トークン以降だけクライアントへ流す。
+      let finalSeen = false;
+      let pending = "";
+
+      const longestPrefixMatchLen = (s: string): number => {
+        const maxLen = Math.min(s.length, FINAL_START_TOKEN.length - 1);
+        for (let n = maxLen; n > 0; n--) {
+          if (FINAL_START_TOKEN.startsWith(s.slice(s.length - n))) {
+            return n;
+          }
+        }
+        return 0;
+      };
+
+      const emitText = (raw: string) => {
+        if (!raw) return;
+
+        if (finalSeen) {
+          if (!textStarted) {
+            writeEvent({ type: "text-start", id: textId });
+            textStarted = true;
+          }
+          writeEvent({ type: "text-delta", id: textId, delta: raw });
+          return;
+        }
+
+        pending += raw;
+
+        const tokenIdx = pending.indexOf(FINAL_START_TOKEN);
+        if (tokenIdx >= 0) {
+          finalSeen = true;
+          const after = pending.slice(tokenIdx);
+          pending = "";
+          if (after) {
+            if (!textStarted) {
+              writeEvent({ type: "text-start", id: textId });
+              textStarted = true;
+            }
+            writeEvent({ type: "text-delta", id: textId, delta: after });
+          }
+          return;
+        }
+
+        // トークン全体は見つからない。末尾が部分一致しうる分だけ保留し、
+        // それより前は通常応答として確定 → 流す。
+        const keep = longestPrefixMatchLen(pending);
+        const flushable = pending.slice(0, pending.length - keep);
+        pending = pending.slice(pending.length - keep);
+        if (flushable) {
+          if (!textStarted) {
+            writeEvent({ type: "text-start", id: textId });
+            textStarted = true;
+          }
+          writeEvent({ type: "text-delta", id: textId, delta: flushable });
+        }
+      };
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          while (true) {
+            const [event, rest] = takeEvent(buf);
+            if (event === null) break;
+            buf = rest;
+            const dataStr = parseDataLine(event);
+            if (!dataStr) continue;
+            if (dataStr === "[DONE]") continue;
+
+            let payload: GeminiStreamChunk;
+            try {
+              payload = JSON.parse(dataStr) as GeminiStreamChunk;
+            } catch {
+              continue;
+            }
+
+            const parts = payload.candidates?.[0]?.content?.parts ?? [];
+            for (const p of parts) {
+              if (!p || typeof p !== "object") continue;
+              if (p.thought) continue;
+              const text = p.text;
+              if (typeof text !== "string" || text.length === 0) continue;
+              emitText(text);
+            }
+          }
+        }
+
+        // ストリーム終了。`pending` が残っているのは通常チャットの末尾。
+        // この時点で `<<FINAL_START>>` は出ていないので残りを流す。
+        if (!finalSeen && pending) {
+          if (!textStarted) {
+            writeEvent({ type: "text-start", id: textId });
+            textStarted = true;
+          }
+          writeEvent({ type: "text-delta", id: textId, delta: pending });
+          pending = "";
+        }
+
+        if (textStarted) {
+          writeEvent({ type: "text-end", id: textId });
+        }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } catch (err) {
+        controller.error(err);
+        return;
+      } finally {
+        controller.close();
+      }
+    },
+    cancel() {
+      reader.cancel().catch(() => {});
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "x-vercel-ai-ui-message-stream": "v1",
+    },
+  });
+}
