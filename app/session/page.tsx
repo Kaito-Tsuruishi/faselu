@@ -18,12 +18,14 @@ import {
   REPORT_DONE_TOKEN,
   hasReportDone,
   looksTruncated,
+  parseCardJson,
 } from "@/lib/parse-result";
 import { clearHistory } from "@/lib/session/history-storage";
 import { useEscapeKey } from "@/lib/session/use-escape-key";
 import { useFinalAnalysis } from "@/lib/session/use-final-analysis";
 import { useScrollHint } from "@/lib/session/use-scroll-hint";
 import { useSessionChat } from "@/lib/session/use-session-chat";
+import { useStallDetector } from "@/lib/session/use-stall-detector";
 import { useThinkingDelay } from "@/lib/session/use-thinking-delay";
 import { useToast } from "@/lib/session/use-toast";
 
@@ -60,7 +62,7 @@ export default function SessionPage() {
     [toast],
   );
 
-  const { messages, sendMessage, status, error } = useSessionChat({
+  const { messages, sendMessage, stop, status, error } = useSessionChat({
     pausePersist: showConfirm || terminated !== null,
     onError: handleError,
   });
@@ -103,6 +105,12 @@ export default function SessionPage() {
   const showThinking = useThinkingDelay(status);
   const lastAssistantId = lastAssistant?.id;
 
+  // ストリーミング中の停滞検知: 15 秒データが来なければ「途切れた」とみなす
+  useStallDetector(status, lastAssistantText.length, () => {
+    stop();
+    setHadAbort(true);
+  });
+
   useEffect(() => {
     if (status === "error") {
       setHadAbort(true);
@@ -113,11 +121,23 @@ export default function SessionPage() {
       return;
     }
     if (status === "ready" && lastAssistant) {
+      // 通常の判定: 句点で終わらない長文 = 途切れている
       if (looksTruncated(lastAssistantText)) {
+        setHadAbort(true);
+        return;
+      }
+      // 最終分析モードに入っているのに、レポート完了マーカー（<<REPORT_DONE>>）も
+      // カード JSON も無いまま ready に戻っているなら、途切れているとみなす。
+      // リロード復元時もこの分岐で自動回復できる。
+      if (
+        isFinalizing &&
+        !hasReportDone(lastAssistantText) &&
+        !parseCardJson(lastAssistantText)
+      ) {
         setHadAbort(true);
       }
     }
-  }, [status, lastAssistant, lastAssistantText]);
+  }, [status, lastAssistant, lastAssistantText, isFinalizing]);
 
   // LINE 風スクロール。
   // - ユーザーが「最下部付近」に居る限り、新着メッセージや段落フェードインで自動追従する
@@ -212,6 +232,7 @@ export default function SessionPage() {
   const requestContinue = () => {
     if (status !== "ready") return;
     setHadAbort(false);
+    // ターン 2 待ち（ターン 1 完了済み）の状態でこぼれた場合: カード JSON を再要求
     if (
       finalAnalysis.isAwaitingCardJson() ||
       hasReportDone(lastAssistantText)
@@ -219,6 +240,14 @@ export default function SessionPage() {
       finalAnalysis.requestCardJson();
       return;
     }
+    // 最終分析モードのターン 1 で途切れた場合: フォーマットを守るよう明示的に指示
+    if (isFinalizing) {
+      sendMessage({
+        text: "直前の最終分析レポートが途中で切れています。最初の見出し（## あなたという人間の構造）から残りすべてのセクションを書き直して、末尾に <<REPORT_DONE>> を必ず付けてください。",
+      });
+      return;
+    }
+    // 通常の会話で途切れた場合
     sendMessage({ text: "直前の発言の続きを、そのまま書いてください。" });
   };
 
@@ -232,8 +261,11 @@ export default function SessionPage() {
     return <SafetyTerminatedView />;
   }
 
-  const showContinueButton =
-    hadAbort && status === "ready" && !isFinalizing && !showConfirm;
+  // 「続きを表示」ボタンは、最終分析中でも途切れた状態なら出す
+  const showContinueButton = hadAbort && status === "ready" && !showConfirm;
+  // ANALYZING オーバーレイは、最終分析が「正常に進行中」のときだけ。
+  // 途切れて固まった状態（hadAbort）では消して、ユーザーが「続きを表示」を押せるようにする
+  const showAnalyzingOverlay = isFinalizing && !showConfirm && !hadAbort;
   const showInputArea = userHasSpoken || aiHasReplied;
 
   return (
@@ -385,7 +417,7 @@ export default function SessionPage() {
         </form>
       )}
 
-      {isFinalizing && !showConfirm && <AnalyzingOverlay />}
+      {showAnalyzingOverlay && <AnalyzingOverlay />}
       {showConfirm && (
         <ConfirmOverlay onConfirm={() => router.replace("/session/result")} />
       )}

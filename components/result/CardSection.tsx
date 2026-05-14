@@ -24,7 +24,7 @@ export function CardSection({ data, cardRef, saving, onSave }: Props) {
         className="font-serif-jp text-[22px] leading-[1.7] mb-12 text-center"
         style={{ color: "var(--color-ink-text)" }}
       >
-        今日のあなた、を一枚に。
+        本当のあなたを、一枚に。
       </h2>
 
       <ResponsiveCardWrapper>

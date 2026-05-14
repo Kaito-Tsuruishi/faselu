@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.73",
+    "@ai-sdk/groq": "^3.0.39",
     "@ai-sdk/react": "^3.0.182",
     "@fontsource/noto-sans-jp": "^5.2.9",
     "@react-pdf/renderer": "^4.5.1",
