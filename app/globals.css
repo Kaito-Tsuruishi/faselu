@@ -45,6 +45,34 @@
 html,
 body {
   color: var(--color-ink-text);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@supports (height: 100dvh) {
+  .h-app-frame {
+    height: 100dvh;
+  }
+}
+@supports not (height: 100dvh) {
+  .h-app-frame {
+    height: 100vh;
+  }
+}
+
+.tap-target {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.safe-pad {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.fade-in-paragraph {
+  animation: fade-in 1500ms ease both;
 }
 
 body {
@@ -76,18 +104,33 @@ body {
       transparent 0.5%
     ),
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
-    linear-gradient(180deg, var(--color-ink-bg-top) 0%, var(--color-ink-bg) 100%);
-  background-size: auto, auto, auto, auto, auto, 240px 240px, auto;
+    linear-gradient(
+      180deg,
+      var(--color-ink-bg-top) 0%,
+      var(--color-ink-bg) 100%
+    );
+  background-size:
+    auto,
+    auto,
+    auto,
+    auto,
+    auto,
+    240px 240px,
+    auto;
   background-attachment: fixed;
-  font-family: var(--font-noto-sans-jp), -apple-system, BlinkMacSystemFont,
-    "Hiragino Sans", sans-serif;
+  font-family:
+    var(--font-noto-sans-jp),
+    -apple-system,
+    BlinkMacSystemFont,
+    "Hiragino Sans",
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 .font-serif-jp {
-  font-family: var(--font-noto-serif-jp), "Hiragino Mincho ProN", "Yu Mincho",
-    serif;
+  font-family:
+    var(--font-noto-serif-jp), "Hiragino Mincho ProN", "Yu Mincho", serif;
 }
 
 .gold-text {
@@ -126,8 +169,19 @@ body {
       transparent 0.5%
     ),
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
-    linear-gradient(180deg, var(--color-ink-bg-top) 0%, var(--color-ink-bg) 100%);
-  background-size: auto, auto, auto, auto, auto, 200px 200px, auto;
+    linear-gradient(
+      180deg,
+      var(--color-ink-bg-top) 0%,
+      var(--color-ink-bg) 100%
+    );
+  background-size:
+    auto,
+    auto,
+    auto,
+    auto,
+    auto,
+    200px 200px,
+    auto;
   color: var(--color-ink-text);
   box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.5);
 }
@@ -142,7 +196,8 @@ body {
   border-radius: inherit;
   padding: 1px;
   background: var(--gradient-gold);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box,
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -178,4 +233,21 @@ body {
 }
 .typing-dot:nth-child(3) {
   animation-delay: 0.4s;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fade-in 700ms ease both;
+}
+
+.fade-in-slow {
+  animation: fade-in 1200ms ease both;
 }

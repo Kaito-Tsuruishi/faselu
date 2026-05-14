@@ -1,58 +1,30 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card } from "@/components/Card";
-import { parseReport } from "@/lib/parse-report";
+import { CardSection } from "@/components/result/CardSection";
+import { ReportSection } from "@/components/result/ReportSection";
+import { Toast } from "@/components/session/Toast";
+import { useToast } from "@/lib/session/use-toast";
+import { useCardImageExport } from "@/lib/result/use-card-image-export";
+import { useReportPdfExport } from "@/lib/result/use-report-pdf-export";
 import type { SessionResult } from "@/lib/types";
-
-const CARD_W = 420;
-const CARD_H = 560;
-
-function ResponsiveCardWrapper({ children }: { children: React.ReactNode }) {
-  const outerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
-  useLayoutEffect(() => {
-    const update = () => {
-      const w = outerRef.current?.clientWidth ?? CARD_W;
-      const next = Math.min(1, w / CARD_W);
-      setScale(next);
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  return (
-    <div ref={outerRef} className="w-full flex justify-center">
-      <div
-        style={{
-          width: CARD_W * scale,
-          height: CARD_H * scale,
-        }}
-      >
-        <div
-          style={{
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-            width: CARD_W,
-            height: CARD_H,
-          }}
-        >
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function ResultPage() {
   const router = useRouter();
   const [result, setResult] = useState<SessionResult | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [savingPdf, setSavingPdf] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const toast = useToast(2400);
+
+  const cardImage = useCardImageExport(cardRef, {
+    onSuccess: toast.show,
+    onError: toast.show,
+  });
+
+  const pdfExport = useReportPdfExport(result?.report ?? null, {
+    onSuccess: toast.show,
+    onError: toast.show,
+  });
 
   useEffect(() => {
     const raw = sessionStorage.getItem("faselu-result");
@@ -70,10 +42,7 @@ export default function ResultPage() {
   if (!result) {
     return (
       <main className="flex-1 flex items-center justify-center">
-        <p
-          className="text-[13px]"
-          style={{ color: "var(--color-muted-3)" }}
-        >
+        <p className="text-[13px]" style={{ color: "var(--color-muted-3)" }}>
           読み込み中…
         </p>
       </main>
@@ -85,7 +54,7 @@ export default function ResultPage() {
       <header className="mb-12 flex items-center justify-between">
         <a
           href="/"
-          className="text-[11px] tracking-[0.2em]"
+          className="text-[11px] tracking-[0.2em] tap-target"
           style={{ color: "var(--color-muted-3)" }}
         >
           FASELU
@@ -102,146 +71,23 @@ export default function ResultPage() {
         </span>
       </header>
 
-      <article className="max-w-[680px] mx-auto">
-        <div
-          className="text-[10px] tracking-[0.3em] gold-text font-bold mb-3"
-          style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
-        >
-          DETAILED REPORT
-        </div>
-        <h2
-          className="font-serif-jp text-[22px] leading-[1.7] mb-12"
-          style={{ color: "var(--color-ink-text)" }}
-        >
-          あなたという人間の、詳細分析
-        </h2>
-
-        <div
-          className="border-t mb-10"
-          style={{ borderColor: "var(--color-line-on-dark)" }}
-        />
-
-        {parseReport(result.report).map((section, i) => (
-          <section key={i} className="mb-12">
-            <div
-              className="text-[10px] tracking-[0.25em] gold-text font-bold mb-2"
-              style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
-            >
-              {String(i + 1).padStart(2, "0")}
-            </div>
-            <h3
-              className="font-serif-jp text-[18px] leading-[1.7] mb-5"
-              style={{ color: "var(--color-ink-text)" }}
-            >
-              {section.heading}
-            </h3>
-            <p
-              className="font-serif-jp text-[15px] leading-[2.1]"
-              style={{
-                color: "var(--color-ink-text-soft)",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {section.body}
-            </p>
-          </section>
-        ))}
-
-        <div className="mt-4 flex justify-center">
-          <button
-            type="button"
-            onClick={async () => {
-              if (savingPdf || !result) return;
-              setSavingPdf(true);
-              try {
-                const [{ pdf }, { ReportPdf }] = await Promise.all([
-                  import("@react-pdf/renderer"),
-                  import("@/components/ReportPdf"),
-                ]);
-                const blob = await pdf(
-                  <ReportPdf report={result.report} />
-                ).toBlob();
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.download = `faselu-report-${Date.now()}.pdf`;
-                link.href = url;
-                link.click();
-                URL.revokeObjectURL(url);
-              } finally {
-                setSavingPdf(false);
-              }
-            }}
-            disabled={savingPdf}
-            className="font-serif-jp text-[13px] gold-underline pb-[2px] disabled:opacity-40"
-            style={{ color: "var(--color-ink-text)" }}
-          >
-            {savingPdf ? "書き出し中…" : "詳細レポートを PDF で保存"}
-          </button>
-        </div>
-      </article>
+      <ReportSection
+        report={result.report}
+        onSavePdf={pdfExport.save}
+        savingPdf={pdfExport.saving}
+      />
 
       <div
         className="my-24 mx-auto max-w-[680px] border-t"
         style={{ borderColor: "var(--color-line-on-dark)" }}
       />
 
-      <section className="flex flex-col items-center mb-12">
-        <div
-          className="text-[10px] tracking-[0.3em] gold-text font-bold mb-3"
-          style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
-        >
-          YOUR CARD
-        </div>
-        <h2
-          className="font-serif-jp text-[22px] leading-[1.7] mb-12 text-center"
-          style={{ color: "var(--color-ink-text)" }}
-        >
-          今日のあなた、を一枚に。
-        </h2>
-
-        <ResponsiveCardWrapper>
-          <Card data={result.card} ref={cardRef} />
-        </ResponsiveCardWrapper>
-
-        <p
-          className="mt-8 text-[11px] text-center"
-          style={{ color: "var(--color-muted-3)" }}
-        >
-          信頼している人にだけ見せてください。
-        </p>
-        <button
-          type="button"
-          onClick={async () => {
-            if (!cardRef.current || saving) return;
-            setSaving(true);
-            try {
-              const { toPng } = await import("html-to-image");
-              const node = cardRef.current;
-              const dataUrl = await toPng(node, {
-                pixelRatio: 3,
-                cacheBust: true,
-                canvasWidth: node.offsetWidth * 3,
-                canvasHeight: node.offsetHeight * 3,
-                style: {
-                  transform: "scale(1)",
-                  transformOrigin: "top left",
-                },
-              });
-              const link = document.createElement("a");
-              link.download = `faselu-${Date.now()}.png`;
-              link.href = dataUrl;
-              link.click();
-            } finally {
-              setSaving(false);
-            }
-          }}
-          disabled={saving}
-          className="mt-6 font-serif-jp text-[13px] gold-underline pb-[2px] disabled:opacity-40"
-          style={{ color: "var(--color-ink-text)" }}
-        >
-          {saving ? "書き出し中…" : "画像で保存"}
-        </button>
-      </section>
+      <CardSection
+        data={result.card}
+        cardRef={cardRef}
+        saving={cardImage.saving}
+        onSave={cardImage.save}
+      />
 
       <footer className="mt-20 mb-8 text-center">
         <button
@@ -250,12 +96,14 @@ export default function ResultPage() {
             sessionStorage.removeItem("faselu-result");
             router.replace("/");
           }}
-          className="font-serif-jp text-[13px]"
+          className="tap-target font-serif-jp text-[13px]"
           style={{ color: "var(--color-muted-3)" }}
         >
           セッションを閉じる
         </button>
       </footer>
+
+      {toast.message && <Toast message={toast.message} />}
     </main>
   );
 }

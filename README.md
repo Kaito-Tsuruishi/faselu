@@ -157,18 +157,18 @@ npm run dev
 
 ## 環境変数
 
-| 変数名 | 必須 | 説明 |
-| --- | --- | --- |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | ✅ | Google AI Studio で発行した Gemini API キー |
+| 変数名                         | 必須 | 説明                                        |
+| ------------------------------ | ---- | ------------------------------------------- |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | ✅   | Google AI Studio で発行した Gemini API キー |
 
 ---
 
 ## スクリプト
 
-| コマンド | 用途 |
-| --- | --- |
-| `npm run dev` | 開発サーバー起動 |
-| `npm run build` | 本番ビルド |
+| コマンド        | 用途                                |
+| --------------- | ----------------------------------- |
+| `npm run dev`   | 開発サーバー起動                    |
+| `npm run build` | 本番ビルド                          |
 | `npm run start` | 本番サーバー起動（要 `build` 済み） |
 
 ---
