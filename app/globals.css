@@ -1,26 +1,181 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-paper: #f0ede8;
+  --color-paper-warm: #f7f3ec;
+  --color-ink-bg: #0e0e10;
+  --color-ink-bg-top: #131316;
+  --color-ink-text: #e8e4dc;
+  --color-ink-text-soft: #d0ccc4;
+  --color-muted-1: #aaaaaa;
+  --color-muted-2: #888888;
+  --color-muted-3: #666666;
+  --color-accent-vermilion: #f0998a;
+  --color-line-on-dark: rgba(255, 255, 255, 0.15);
+  --color-line-on-light: rgba(0, 0, 0, 0.08);
+
+  --gradient-gold: linear-gradient(
+    135deg,
+    #d4af6a 0%,
+    #f0d894 50%,
+    #b8923f 100%
+  );
+
+  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.15);
+
+  --radius-outer: 28px;
+  --radius-mid: 16px;
+  --radius-inner: 12px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-paper: var(--color-paper);
+  --color-paper-warm: var(--color-paper-warm);
+  --color-ink-bg: var(--color-ink-bg);
+  --color-ink-text: var(--color-ink-text);
+  --color-ink-text-soft: var(--color-ink-text-soft);
+  --color-muted-1: var(--color-muted-1);
+  --color-muted-2: var(--color-muted-2);
+  --color-muted-3: var(--color-muted-3);
+  --color-accent-vermilion: var(--color-accent-vermilion);
+  --font-serif: var(--font-noto-serif-jp);
+  --font-sans: var(--font-noto-sans-jp);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  color: var(--color-ink-text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-ink-bg);
+  background-image:
+    radial-gradient(
+      circle at 20% 30%,
+      rgba(255, 250, 230, 0.04) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 70% 60%,
+      rgba(255, 250, 230, 0.04) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 40% 80%,
+      rgba(255, 250, 230, 0.04) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 85% 20%,
+      rgba(255, 250, 230, 0.04) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 10% 70%,
+      rgba(255, 250, 230, 0.04) 0%,
+      transparent 0.5%
+    ),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+    linear-gradient(180deg, var(--color-ink-bg-top) 0%, var(--color-ink-bg) 100%);
+  background-size: auto, auto, auto, auto, auto, 240px 240px, auto;
+  background-attachment: fixed;
+  font-family: var(--font-noto-sans-jp), -apple-system, BlinkMacSystemFont,
+    "Hiragino Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.font-serif-jp {
+  font-family: var(--font-noto-serif-jp), "Hiragino Mincho ProN", "Yu Mincho",
+    serif;
+}
+
+.gold-text {
+  background: var(--gradient-gold);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.paper-dark {
+  background-color: var(--color-ink-bg);
+  background-image:
+    radial-gradient(
+      circle at 20% 30%,
+      rgba(255, 250, 230, 0.06) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 70% 60%,
+      rgba(255, 250, 230, 0.06) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 40% 80%,
+      rgba(255, 250, 230, 0.06) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 85% 20%,
+      rgba(255, 250, 230, 0.06) 0%,
+      transparent 0.5%
+    ),
+    radial-gradient(
+      circle at 10% 70%,
+      rgba(255, 250, 230, 0.06) 0%,
+      transparent 0.5%
+    ),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+    linear-gradient(180deg, var(--color-ink-bg-top) 0%, var(--color-ink-bg) 100%);
+  background-size: auto, auto, auto, auto, auto, 200px 200px, auto;
+  color: var(--color-ink-text);
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.5);
+}
+
+.gold-border {
+  position: relative;
+}
+.gold-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--gradient-gold);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.gold-underline {
+  background-image: var(--gradient-gold);
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: 0 100%;
+}
+
+@keyframes dots {
+  0%,
+  20% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+.typing-dot {
+  animation: dots 1.4s infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
 }
