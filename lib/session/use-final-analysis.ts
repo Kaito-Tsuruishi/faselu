@@ -3,8 +3,10 @@
 import type { UIMessage } from "ai";
 import { useCallback, useEffect, useRef } from "react";
 import {
+  FINAL_REPORT_TRIGGER,
   NEXT_TURN_CARD_JSON_TOKEN,
   buildSessionResult,
+  hasReadyForFinal,
   hasReportDone,
   isSafetyTerminate,
   parseCardJson,
@@ -35,9 +37,11 @@ function useFinalAnalysisWatcher({
   onComplete,
   cardRequestedRef,
   cardRequestedAtRef,
+  reportRequestedRef,
 }: WatcherOptions & {
   cardRequestedRef: React.MutableRefObject<boolean>;
   cardRequestedAtRef: React.MutableRefObject<number | null>;
+  reportRequestedRef: React.MutableRefObject<boolean>;
 }) {
   const stableSafety = useStableCallback(onSafetyTerminate);
   const stableComplete = useStableCallback(onComplete);
@@ -57,6 +61,14 @@ function useFinalAnalysisWatcher({
     }
 
     if (status !== "ready") return;
+
+    // 対話ターンで AI が <<READY_FOR_FINAL>> だけを返してきたら、
+    // 自動で最終レポート開始トリガを送って次ターン（final モード）へ移行する。
+    if (hasReadyForFinal(text) && !reportRequestedRef.current) {
+      reportRequestedRef.current = true;
+      stableSend({ text: FINAL_REPORT_TRIGGER });
+      return;
+    }
 
     const card = parseCardJson(text);
     if (card) {
@@ -87,6 +99,7 @@ function useFinalAnalysisWatcher({
     stableSend,
     cardRequestedRef,
     cardRequestedAtRef,
+    reportRequestedRef,
   ]);
 }
 
@@ -136,11 +149,13 @@ export function useFinalAnalysis(
 ): FinalAnalysisControl {
   const cardRequestedRef = useRef(false);
   const cardRequestedAtRef = useRef<number | null>(null);
+  const reportRequestedRef = useRef(false);
 
   useFinalAnalysisWatcher({
     ...opts,
     cardRequestedRef,
     cardRequestedAtRef,
+    reportRequestedRef,
   });
 
   useStuckGuard({

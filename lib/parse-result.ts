@@ -3,10 +3,16 @@ import type { CardData, SessionResult } from "./types";
 const JSON_BLOCK_RE = /```json\s*([\s\S]*?)\s*```/i;
 
 export const SAFETY_TERMINATE_TOKEN = "<<SAFETY_TERMINATE>>";
+export const READY_FOR_FINAL_TOKEN = "<<READY_FOR_FINAL>>";
 export const FINAL_START_TOKEN = "<<FINAL_START>>";
 export const REPORT_DONE_TOKEN = "<<REPORT_DONE>>";
 export const NEXT_TURN_CARD_JSON_TOKEN = "<<NEXT_TURN_CARD_JSON>>";
+export const FINAL_REPORT_TRIGGER = "<<BEGIN_FINAL_REPORT>>";
 export const FINAL_MODE_MARKER = "## あなたという人間の構造";
+
+export function hasReadyForFinal(text: string): boolean {
+  return text.includes(READY_FOR_FINAL_TOKEN);
+}
 
 export function hasFinalStart(text: string): boolean {
   return text.includes(FINAL_START_TOKEN);

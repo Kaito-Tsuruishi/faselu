@@ -13,9 +13,12 @@ import { SafetyTerminatedView } from "@/components/session/SafetyTerminatedView"
 import { Toast } from "@/components/session/Toast";
 import {
   FINAL_MODE_MARKER,
+  FINAL_REPORT_TRIGGER,
   FINAL_START_TOKEN,
   NEXT_TURN_CARD_JSON_TOKEN,
+  READY_FOR_FINAL_TOKEN,
   REPORT_DONE_TOKEN,
+  hasReadyForFinal,
   hasReportDone,
   looksTruncated,
   parseCardJson,
@@ -39,6 +42,7 @@ const textOf = (m: UIMessage): string =>
     .join("");
 
 const isFinalModeText = (text: string): boolean =>
+  text.includes(READY_FOR_FINAL_TOKEN) ||
   text.includes(FINAL_START_TOKEN) ||
   text.includes(FINAL_MODE_MARKER) ||
   text.includes(REPORT_DONE_TOKEN) ||
@@ -122,6 +126,9 @@ export default function SessionPage() {
       return;
     }
     if (status === "ready" && lastAssistant) {
+      // <<READY_FOR_FINAL>> 単独応答は AI が意図的に短く返した正常終端。
+      // この直後にフロントが自動で <<BEGIN_FINAL_REPORT>> を送るので abort 扱いにしない。
+      if (hasReadyForFinal(lastAssistantText)) return;
       // 通常の判定: 句点で終わらない長文 = 途切れている
       if (looksTruncated(lastAssistantText)) {
         setHadAbort(true);
@@ -318,9 +325,7 @@ export default function SessionPage() {
           status={status}
           onForceFinal={() => {
             if (status !== "ready") return;
-            sendMessage({
-              text: "[DEBUG] 9 領域カバー判定は無視して、今すぐ最終統合分析モードに入ってください。直前の会話を踏まえて、まずターン 1 として詳細レポートを書き、末尾に <<REPORT_DONE>> を置いてください。",
-            });
+            sendMessage({ text: FINAL_REPORT_TRIGGER });
           }}
         />
       )}
@@ -335,6 +340,7 @@ export default function SessionPage() {
           if (!text) return null;
           if (text === "準備できました。はじめてください。") return null;
           if (text === NEXT_TURN_CARD_JSON_TOKEN) return null;
+          if (text === FINAL_REPORT_TRIGGER) return null;
           // 「続きを表示」で送る再開用ユーザー発言は履歴に出さない
           if (text === "直前の発言の続きを、そのまま書いてください。")
             return null;
