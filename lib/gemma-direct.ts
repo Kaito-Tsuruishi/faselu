@@ -86,19 +86,57 @@ export async function streamGemmaResponse({
       : {}),
   };
 
-  const upstream = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  // Google AI Studio API は時々 5xx を返してくる (transient)。
+  // ユーザー側に「通信エラー」を見せずに自動で retry する。
+  // ただし signal が abort されたら即諦める (ユーザー意図的中断)。
+  // Vercel Hobby のハードタイムアウトが 60 秒なので、Gemma の通常応答 30 秒を考えると
+  // retry は 1 回までに抑える。1 回失敗 + 500ms 待ち + 通常応答 30 秒 ≒ 31 秒で完了。
+  const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+  const RETRY_DELAYS_MS = [500];
 
-  if (!upstream.ok || !upstream.body) {
-    const errText = await upstream.text().catch(() => "");
-    return new Response(
-      `Gemma upstream error ${upstream.status}: ${errText}`,
-      { status: 502 },
-    );
+  let upstream: Response | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (signal?.aborted) break;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (res.ok && res.body) {
+        upstream = res;
+        break;
+      }
+      // body をここで一度読まないと、次の試行で接続再利用が失敗する可能性がある
+      const errText = await res.text().catch(() => "");
+      lastErr = `HTTP ${res.status}: ${errText}`;
+      if (!RETRYABLE_STATUSES.has(res.status)) {
+        // retry しても改善しないステータス (400, 401 等) はそのまま返す
+        return new Response(`Gemma upstream error ${res.status}: ${errText}`, {
+          status: 502,
+        });
+      }
+    } catch (err) {
+      // abort なら即終了。それ以外のネットワーク系エラーは retry 対象
+      if (signal?.aborted) throw err;
+      const isAbortError =
+        err instanceof Error &&
+        (err.name === "AbortError" || /aborted/i.test(err.message));
+      if (isAbortError) throw err;
+      lastErr = err;
+    }
+    const delay = RETRY_DELAYS_MS[attempt];
+    if (delay !== undefined) {
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  if (!upstream || !upstream.body) {
+    return new Response(`Gemma upstream error after retries: ${String(lastErr)}`, {
+      status: 502,
+    });
   }
 
   const encoder = new TextEncoder();

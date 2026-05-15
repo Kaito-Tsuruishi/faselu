@@ -5,12 +5,14 @@ import { useStableCallback } from "./use-stable-callback";
 
 type ChatStatus = "submitted" | "streaming" | "ready" | "error";
 
-const STALL_THRESHOLD_MS = 30_000;
+// Gemma は thinking モデルなので最初の delta が来るまで 30 秒近く沈黙することがある。
+// それを「停滞」と誤判定しないよう、Vercel Hobby の 60 秒タイムアウトギリギリまで待つ。
+const STALL_THRESHOLD_MS = 45_000;
 const CHECK_INTERVAL_MS = 1000;
 
 /**
  * AI ストリーミング中、最後にテキストが伸びた時刻からの経過時間を監視する。
- * STALL_THRESHOLD_MS（既定 15 秒）データが来なければ「停滞」とみなして onStall を呼ぶ。
+ * STALL_THRESHOLD_MS データが来なければ「停滞」とみなして onStall を呼ぶ。
  * 同じセッション中に複数回発火する可能性があるので、呼び出し側で重複処理に注意。
  */
 export function useStallDetector(
