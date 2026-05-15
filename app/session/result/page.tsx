@@ -51,16 +51,27 @@ export default function ResultPage() {
 
   return (
     <main className="flex-1 w-full max-w-[820px] mx-auto px-4 sm:px-6 py-12">
-      <header className="mb-12 flex items-center justify-between">
-        <a
-          href="/"
-          className="text-[11px] tracking-[0.2em] tap-target"
-          style={{ color: "var(--color-muted-3)" }}
-        >
-          FASELU
-        </a>
+      <header className="mb-12 flex items-baseline justify-between gap-4">
+        <div className="flex items-baseline gap-3">
+          <a
+            href="/"
+            className="text-[13px] tracking-[0.2em] font-bold tap-target"
+            style={{ color: "var(--color-ink-text)" }}
+          >
+            FASELU
+          </a>
+          <span
+            className="text-[11px] tracking-[0.3em] font-medium"
+            style={{
+              fontFamily: "var(--font-noto-sans-jp), sans-serif",
+              color: "var(--color-muted-3)",
+            }}
+          >
+            face yourself
+          </span>
+        </div>
         <span
-          className="text-[11px] tracking-[0.15em]"
+          className="text-[12px] tracking-[0.15em] font-medium"
           style={{ color: "var(--color-muted-2)" }}
         >
           {new Date().toLocaleDateString("ja-JP", {

@@ -3,22 +3,27 @@
 :root {
   --color-paper: #f0ede8;
   --color-paper-warm: #f7f3ec;
-  --color-ink-bg: #0e0e10;
-  --color-ink-bg-top: #131316;
-  --color-ink-text: #e8e4dc;
-  --color-ink-text-soft: #d0ccc4;
-  --color-muted-1: #aaaaaa;
-  --color-muted-2: #888888;
-  --color-muted-3: #666666;
+  /* 純黒を避けて深い藍含みに */
+  --color-ink-bg: #13151c;
+  --color-ink-bg-top: #181a24;
+  /* 本文系を一段濃くしてコントラスト確保 */
+  --color-ink-text: #fbf6e6;
+  --color-ink-text-soft: #f0ead8;
+  --color-muted-1: #d8d2c4;
+  --color-muted-2: #b8b2a4;
+  --color-muted-3: #aaa49a;
   --color-accent-vermilion: #f0998a;
   --color-line-on-dark: rgba(255, 255, 255, 0.15);
   --color-line-on-light: rgba(0, 0, 0, 0.08);
 
+  /* 抹茶寄り単色アクセントへ。占いの金色を廃止 */
+  --color-accent: #a8b87a;
+  /* 単色だがグラデ string として持つことで、background-image を期待する場所
+     (.gold-underline, .gold-border の mask) でも安全に使える */
   --gradient-gold: linear-gradient(
     135deg,
-    #d4af6a 0%,
-    #f0d894 50%,
-    #b8923f 100%
+    var(--color-accent),
+    var(--color-accent)
   );
 
   --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.15);
@@ -78,30 +83,22 @@ body {
 body {
   background-color: var(--color-ink-bg);
   background-image:
+    /* モック v3 と同じ書き方: 画面上 38% に藤×藍の光を 2 つの大きな radial で重ねる */
+    /* 左上の角から藤紫の光が三角形状に下方向へ伸びる */
     radial-gradient(
-      circle at 20% 30%,
-      rgba(255, 250, 230, 0.04) 0%,
-      transparent 0.5%
+      ellipse 65% 80% at 0% 0%,
+      rgba(196, 168, 232, 0.55) 0%,
+      rgba(178, 150, 220, 0.22) 18%,
+      rgba(178, 150, 220, 0.08) 42%,
+      transparent 75%
     ),
+    /* 右上の角から若草の光が三角形状に下方向へ伸びる */
     radial-gradient(
-      circle at 70% 60%,
-      rgba(255, 250, 230, 0.04) 0%,
-      transparent 0.5%
-    ),
-    radial-gradient(
-      circle at 40% 80%,
-      rgba(255, 250, 230, 0.04) 0%,
-      transparent 0.5%
-    ),
-    radial-gradient(
-      circle at 85% 20%,
-      rgba(255, 250, 230, 0.04) 0%,
-      transparent 0.5%
-    ),
-    radial-gradient(
-      circle at 10% 70%,
-      rgba(255, 250, 230, 0.04) 0%,
-      transparent 0.5%
+      ellipse 60% 75% at 100% 0%,
+      rgba(178, 220, 150, 0.48) 0%,
+      rgba(150, 200, 130, 0.18) 18%,
+      rgba(150, 200, 130, 0.07) 42%,
+      transparent 75%
     ),
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
     linear-gradient(
@@ -110,9 +107,6 @@ body {
       var(--color-ink-bg) 100%
     );
   background-size:
-    auto,
-    auto,
-    auto,
     auto,
     auto,
     240px 240px,

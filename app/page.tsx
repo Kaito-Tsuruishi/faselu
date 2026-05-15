@@ -3,16 +3,19 @@ import Link from "next/link";
 export default function Home() {
   return (
     <main className="flex-1 flex flex-col">
-      <header className="px-8 sm:px-16 pt-10 flex items-baseline gap-4">
+      <header className="px-8 sm:px-16 pt-10 flex flex-col gap-1">
         <span
-          className="text-[13px] tracking-[0.4em] font-bold"
+          className="text-[15px] tracking-[0.4em] font-bold"
           style={{ color: "var(--color-ink-text)" }}
         >
           FASELU
         </span>
         <span
-          className="text-[10px] tracking-[0.2em] gold-text font-bold"
-          style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
+          className="text-[11px] tracking-[0.3em] font-medium"
+          style={{
+            fontFamily: "var(--font-noto-sans-jp), sans-serif",
+            color: "var(--color-muted-3)",
+          }}
         >
           face yourself
         </span>
@@ -20,24 +23,33 @@ export default function Home() {
 
       <section className="flex-1 flex items-center px-8 sm:px-16">
         <div className="max-w-[640px]">
-          <h1
-            className="font-serif-jp text-[34px] sm:text-[44px] leading-[1.7] mb-16"
-            style={{ color: "var(--color-ink-text)" }}
+          <span
+            className="block text-[11px] tracking-[0.24em] font-bold uppercase mb-6"
+            style={{ color: "var(--color-accent)" }}
           >
-            自分と向き合う、
+            A 30-min conversation with yourself
+          </span>
+          <h1
+            className="font-serif-jp text-[34px] sm:text-[44px] leading-[1.55] mb-12 font-semibold"
+            style={{
+              color: "var(--color-ink-text)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            自分の輪郭を、
             <br />
-            30 分。
+            言葉でなぞる。
           </h1>
 
           <p
-            className="font-serif-jp text-[15px] sm:text-[16px] leading-[2.2] mb-16"
+            className="font-serif-jp text-[15px] sm:text-[16px] leading-[2.1] mb-16"
             style={{ color: "var(--color-ink-text-soft)" }}
           >
-            褒めるだけでも、慰めるだけでもない。
+            30 分の対話で、認知の癖や、避けてきた問いを観察します。
             <br />
-            矛盾を指摘されるし、避けてきたものにも触れる。
+            慰めも、励ましも、答えも返しません。
             <br />
-            少し疲れる 30 分かもしれません。
+            ただ、あなたが普段ひとりでは見ない角度から、問いを置きます。
           </p>
 
           <Link
@@ -50,18 +62,18 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="px-8 sm:px-16 pb-10 flex items-end justify-between gap-6 flex-wrap">
+      <footer className="px-8 sm:px-16 pb-10 flex flex-col gap-6">
         <p
-          className="text-[10px] leading-[2] max-w-[640px]"
+          className="text-[12px] leading-[1.85]"
           style={{ color: "var(--color-muted-2)" }}
         >
-          ※
-          踏み込んだ指摘を含むセッションです。心身が弱っている状態のときは利用を控えてください。
-          <br />※ 会話の内容はサーバーに保存されません。
+          踏み込んだ問いを含みます。
+          <br />
+          会話の内容はサーバーに保存されません。
         </p>
         <Link
           href="/about"
-          className="tap-target text-[10px] tracking-[0.3em]"
+          className="tap-target self-end text-[12px] tracking-[0.3em] font-semibold"
           style={{ color: "var(--color-muted-3)" }}
         >
           ABOUT

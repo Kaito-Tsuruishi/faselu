@@ -36,13 +36,13 @@ export default function AboutPage() {
       <header className="mb-16 flex items-center justify-between">
         <Link
           href="/"
-          className="text-[12px] tracking-[0.3em] font-bold tap-target"
+          className="text-[14px] tracking-[0.3em] font-bold tap-target"
           style={{ color: "var(--color-ink-text)" }}
         >
           FASELU
         </Link>
         <span
-          className="text-[10px] tracking-[0.3em] gold-text font-bold"
+          className="text-[12px] tracking-[0.3em] gold-text font-bold"
           style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
         >
           ABOUT

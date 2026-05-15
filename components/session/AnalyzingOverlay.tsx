@@ -31,15 +31,15 @@ export function AnalyzingOverlay({ fading = false }: Props) {
         <div className="inline-flex gap-[6px] items-center">
           <span
             className="typing-dot inline-block w-[6px] h-[6px] rounded-full"
-            style={{ backgroundColor: "var(--color-ink-text-soft)" }}
+            style={{ backgroundColor: "var(--color-accent)" }}
           />
           <span
             className="typing-dot inline-block w-[6px] h-[6px] rounded-full"
-            style={{ backgroundColor: "var(--color-ink-text-soft)" }}
+            style={{ backgroundColor: "var(--color-accent)" }}
           />
           <span
             className="typing-dot inline-block w-[6px] h-[6px] rounded-full"
-            style={{ backgroundColor: "var(--color-ink-text-soft)" }}
+            style={{ backgroundColor: "var(--color-accent)" }}
           />
         </div>
       </div>

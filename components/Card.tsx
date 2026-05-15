@@ -24,6 +24,42 @@ function buildGradient(color: CardData["card_color"]): string {
 }
 
 /**
+ * カード見出し (FASELU / CHARACTERISTICS / QUESTION TO SELF) に
+ * 本人色のグラデを「文字塗り」として当てるための style。
+ * 旧 .gold-text の本人色版。
+ */
+function accentTextStyle(color: CardData["card_color"]): React.CSSProperties {
+  const first = color.colors[0] ?? "#a8b87a";
+  const second = color.colors[1] ?? first;
+  return {
+    background: `linear-gradient(135deg, ${first} 0%, ${second} 100%)`,
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    color: "transparent",
+  };
+}
+
+/**
+ * カードの QUESTION TO SELF 枠を本人色グラデの 1px 枠取りにする style。
+ * 旧 .gold-border の本人色版。
+ */
+function accentBorderStyle(
+  color: CardData["card_color"],
+): React.CSSProperties {
+  const first = color.colors[0] ?? "#a8b87a";
+  const second = color.colors[1] ?? first;
+  return {
+    background: `linear-gradient(135deg, ${first}, ${second})`,
+    WebkitMask:
+      "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+    WebkitMaskComposite: "xor",
+    maskComposite: "exclude",
+    padding: "1px",
+  };
+}
+
+/**
  * 文字数に応じてフォントサイズを線形に縮小する。
  * 短いほど大きく、長いほど小さく。
  */
@@ -89,8 +125,11 @@ export function Card({ data, date, ref }: Props) {
             {displayDate}
           </div>
           <div
-            className="text-[10px] tracking-[0.3em] gold-text font-bold"
-            style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
+            className="text-[12px] tracking-[0.3em] font-bold"
+            style={{
+              fontFamily: "var(--font-noto-sans-jp), sans-serif",
+              ...accentTextStyle(data.card_color),
+            }}
           >
             FASELU
           </div>
@@ -107,9 +146,14 @@ export function Card({ data, date, ref }: Props) {
 
         <div className="mb-[18px]">
           <div
-            className="w-[28px] h-[3px] rounded-[2px] mb-[12px]"
+            className="w-[120px] h-[3px] rounded-[2px] mb-[12px]"
             style={{
-              background: `linear-gradient(90deg, ${data.card_color.colors[0]}, ${data.card_color.colors[1] ?? data.card_color.colors[0]})`,
+              // 枠と同じグラデを横方向で塗る (全色 + stops を使う)
+              background: buildGradient({
+                ...data.card_color,
+                gradient_type: "linear",
+                direction: "90deg",
+              }),
             }}
           />
           <div
@@ -134,8 +178,11 @@ export function Card({ data, date, ref }: Props) {
         />
 
         <div
-          className="text-[9px] tracking-[0.2em] gold-text font-bold mb-[8px]"
-          style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
+          className="text-[9px] tracking-[0.2em] font-bold mb-[8px]"
+          style={{
+            fontFamily: "var(--font-noto-sans-jp), sans-serif",
+            ...accentTextStyle(data.card_color),
+          }}
         >
           CHARACTERISTICS
         </div>
@@ -163,20 +210,27 @@ export function Card({ data, date, ref }: Props) {
         </ul>
 
         <div
-          className="mt-auto p-[14px_16px] rounded-[12px] relative gold-border"
+          className="mt-auto p-[14px_16px] rounded-[12px] relative"
           style={{
-            background:
-              "linear-gradient(135deg, rgba(212, 175, 106, 0.08), rgba(240, 216, 148, 0.05))",
+            background: `linear-gradient(135deg, ${data.card_color.colors[0]}1a, ${(data.card_color.colors[1] ?? data.card_color.colors[0])}0d)`,
           }}
         >
           <div
-            className="text-[9px] tracking-[0.2em] gold-text font-bold mb-[6px]"
-            style={{ fontFamily: "var(--font-noto-sans-jp), sans-serif" }}
+            aria-hidden
+            className="absolute inset-0 rounded-[12px] pointer-events-none"
+            style={accentBorderStyle(data.card_color)}
+          />
+          <div
+            className="text-[9px] tracking-[0.2em] font-bold mb-[6px] relative"
+            style={{
+              fontFamily: "var(--font-noto-sans-jp), sans-serif",
+              ...accentTextStyle(data.card_color),
+            }}
           >
             QUESTION TO SELF
           </div>
           <div
-            className="leading-[1.7]"
+            className="leading-[1.7] relative"
             style={{
               color: "var(--color-ink-text)",
               fontSize: `${questionFontPx}px`,

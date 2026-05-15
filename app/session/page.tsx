@@ -20,6 +20,7 @@ import {
   looksTruncated,
   parseCardJson,
 } from "@/lib/parse-result";
+import { OPENING_WARNING } from "@/lib/prompt";
 import { clearHistory } from "@/lib/session/history-storage";
 import { useEscapeKey } from "@/lib/session/use-escape-key";
 import { useFinalAnalysis } from "@/lib/session/use-final-analysis";
@@ -255,6 +256,12 @@ export default function SessionPage() {
       });
       return;
     }
+    // 最初の問い (AI 1 ターン目) を取り損ねた場合: AI 応答が一切無いのに hadAbort が立つ。
+    // ここで「続きを書いて」だと AI が文脈不明で固まるので、最初のトリガを送り直す。
+    if (!aiHasReplied) {
+      sendMessage({ text: "準備できました。はじめてください。" });
+      return;
+    }
     // 通常の会話で途切れた場合
     sendMessage({ text: "直前の発言の続きを、そのまま書いてください。" });
   };
@@ -278,17 +285,28 @@ export default function SessionPage() {
 
   return (
     <main className="flex flex-col w-full max-w-[720px] mx-auto px-4 sm:px-6 h-app-frame">
-      <header className="shrink-0 py-5 flex items-center justify-between">
-        <span
-          className="text-[11px] tracking-[0.2em]"
-          style={{ color: "var(--color-muted-3)" }}
-        >
-          FASELU
-        </span>
+      <header className="shrink-0 py-5 flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <span
+            className="text-[13px] tracking-[0.2em] font-bold"
+            style={{ color: "var(--color-ink-text)" }}
+          >
+            FASELU
+          </span>
+          <span
+            className="text-[11px] tracking-[0.3em] font-medium"
+            style={{
+              fontFamily: "var(--font-noto-sans-jp), sans-serif",
+              color: "var(--color-muted-3)",
+            }}
+          >
+            face yourself
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => setAskExit(true)}
-          className="tap-target px-2 -mr-2 text-[12px] tracking-[0.15em] gold-underline pb-[2px]"
+          className="tap-target px-2 -mr-2 text-[13px] tracking-[0.15em] gold-underline pb-[2px]"
           style={{ color: "var(--color-muted-1)" }}
         >
           分析を止める
@@ -317,6 +335,11 @@ export default function SessionPage() {
           if (!text) return null;
           if (text === "準備できました。はじめてください。") return null;
           if (text === NEXT_TURN_CARD_JSON_TOKEN) return null;
+          // 「続きを表示」で送る再開用ユーザー発言は履歴に出さない
+          if (text === "直前の発言の続きを、そのまま書いてください。")
+            return null;
+          if (text.startsWith("直前の最終分析レポートが途中で切れています"))
+            return null;
           if (m.id === "opening" && aiHasReplied) return null;
           if (m.role === "assistant" && isFinalModeText(text)) return null;
           // ストリーミング中の最新 AI バブルだけ、フェードイン演出する。
@@ -325,6 +348,23 @@ export default function SessionPage() {
             m.role === "assistant" &&
             m.id === lastAssistantId &&
             (status === "submitted" || status === "streaming");
+          if (m.id === "opening") {
+            return (
+              <div key={m.id}>
+                <p
+                  className="text-[11px] tracking-[0.22em] font-bold uppercase mb-3"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  Before we begin
+                </p>
+                <ChatBubble
+                  role="assistant"
+                  text={text}
+                  fade={isStreamingAssistant}
+                />
+              </div>
+            );
+          }
           return (
             <ChatBubble
               key={m.id}
@@ -339,12 +379,13 @@ export default function SessionPage() {
           <ContinueButton
             onClick={requestContinue}
             hasNetworkError={!!error?.message}
+            isInitial={!aiHasReplied}
           />
         )}
       </div>
 
       {!showInputArea ? (
-        <div className="shrink-0 py-8 flex flex-col items-center gap-2 relative">
+        <div className="shrink-0 pt-8 pb-6 flex flex-col items-center gap-5 relative">
           {showScrollHint && (
             <div
               className="absolute -top-6 text-[11px] tracking-[0.15em] fade-in"
@@ -363,7 +404,7 @@ export default function SessionPage() {
             className="tap-target font-serif-jp text-[17px] tracking-[0.2em] gold-underline pb-[4px] disabled:opacity-40"
             style={{ color: "var(--color-ink-text)" }}
           >
-            最初の質問へ
+            最初の問いへ
           </button>
           {status !== "ready" && (
             <span
@@ -373,6 +414,16 @@ export default function SessionPage() {
               準備しています…
             </span>
           )}
+          <p
+            className="text-[11px] leading-[1.85] text-center pt-4 max-w-[300px]"
+            style={{
+              color: "var(--color-muted-2)",
+              borderTop: "1px solid var(--color-line-on-dark)",
+              whiteSpace: "pre-line",
+            }}
+          >
+            {OPENING_WARNING}
+          </p>
         </div>
       ) : (
         <form
@@ -401,9 +452,7 @@ export default function SessionPage() {
             }}
             rows={2}
             placeholder={
-              status === "ready"
-                ? "答える（できるだけ具体的に）"
-                : "AI が考え中…"
+              status === "ready" ? "具体的に、長めに" : "AI が考え中…"
             }
             className="flex-1 resize-none bg-transparent outline-none text-[16px] leading-[1.8] py-2 overflow-y-auto"
             style={{
