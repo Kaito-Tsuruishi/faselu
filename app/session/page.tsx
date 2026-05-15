@@ -143,10 +143,18 @@ export default function SessionPage() {
   // - ユーザーが「最下部付近」に居る限り、新着メッセージや段落フェードインで自動追従する
   // - ユーザーが手動で上にスクロールしたら追従を止める
   // - プログラム由来のスクロールは無視する（自動追従後の scroll イベントで誤って解除しないため）
+  // - 初期表示（オープニング宣言のみ）はユーザーが最初の発言をするまで上端固定。
+  //   宣言文がスマホのファーストビューに収まらないと、最初の数行が画面外に流れて
+  //   ユーザーが気付けないため。
   // DOM の高さ変化を ResizeObserver/MutationObserver で監視し、
   // messages の更新タイミングに依存せず段落フェードインのたびに追従させる。
-  const stickToBottomRef = useRef(true);
+  const stickToBottomRef = useRef(false);
   const programmaticScrollUntilRef = useRef(0);
+
+  // ユーザーが最初の発言をした瞬間に、下端追従モードへ切り替える。
+  useEffect(() => {
+    if (userHasSpoken) stickToBottomRef.current = true;
+  }, [userHasSpoken]);
 
   useEffect(() => {
     const container = scrollRef.current;
