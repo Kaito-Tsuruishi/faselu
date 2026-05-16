@@ -13,8 +13,17 @@ import { streamGoogleResponse } from "@/lib/google-direct";
 export const maxDuration = 60;
 
 const PROVIDER = process.env.FASELU_PROVIDER ?? "gemini";
-const GEMINI_MODEL =
+
+// モード別モデル選択。
+// - 対話モードは応答回数が多くテンポ重視 → 軽量な Gemma 26b がデフォルト。
+// - 最終分析モードはレポート品質重視 + Gemini Flash Lite の方が free tier
+//   制限内で安定 → Gemini 3.1 Flash Lite がデフォルト。
+// 旧来の FASELU_GEMINI_MODEL は後方互換のフォールバックとして残す。
+const FALLBACK_MODEL =
   process.env.FASELU_GEMINI_MODEL ?? "gemini-3.1-flash-lite";
+const DIALOGUE_MODEL =
+  process.env.FASELU_DIALOGUE_MODEL ?? FALLBACK_MODEL;
+const FINAL_MODEL = process.env.FASELU_FINAL_MODEL ?? FALLBACK_MODEL;
 
 function textOf(msg: UIMessage): string {
   return msg.parts
@@ -69,7 +78,7 @@ export async function POST(req: Request) {
       });
     }
     return streamGoogleResponse({
-      model: GEMINI_MODEL,
+      model: mode === "final" ? FINAL_MODEL : DIALOGUE_MODEL,
       apiKey,
       system,
       messages: modelMessages,
