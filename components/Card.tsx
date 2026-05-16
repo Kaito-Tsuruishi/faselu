@@ -168,11 +168,6 @@ function buildGradient(color: CardData["card_color"]): string {
  * カード見出し (FASELU / CHARACTERISTICS / QUESTION TO SELF) に
  * 本人色のグラデを「文字塗り」として当てるための style。
  * 旧 .gold-text の本人色版。
- *
- * 文字単体だと scatter モードで暗い背景の上に来た時にグラデ塗りが見えづらく
- * なるので、AccentText コンポーネントで「白文字を下敷きに、上に色グラデ文字
- * を重ねる」二重構造で描画する（縁取り感を出して読みやすさを確保）。
- * この style はその「上のレイヤー」用。
  */
 function accentTextStyle(color: CardData["card_color"]): React.CSSProperties {
   const first = color.colors[0] ?? "#a8b87a";
@@ -187,13 +182,12 @@ function accentTextStyle(color: CardData["card_color"]): React.CSSProperties {
 }
 
 /**
- * 文字を「白い縁取り（下敷き）+ 色グラデ塗り（上）」の二重構造で描画する。
- * scatter モードのカードのように、文字の背後に暗色が来うる場合でも、白の
- * 縁が文字を浮かび上がらせるので可読性が保てる。
+ * 色グラデ塗り文字をクリーム色のピル状ベタの上に乗せて、scatter 背景の
+ * いかなる色（特に暗色グラデの 1 色目と本人色グラデの 1 色目が同色域に
+ * 来るケース）でも可読性を確保するためのラッパー。
  *
- * 実装: 同じテキストを 2 つの span で重ねる。下の span は白で text-shadow
- * によるごく薄い縁取り風表現、上の span は色グラデ塗り（accentTextStyle）。
- * position: relative + absolute で完全に重ねる。
+ * 構造: 外側 span がクリームのベタ（padding でピル化）、内側 span が
+ * accentTextStyle による色グラデ塗り文字。
  */
 function AccentText({
   children,
@@ -209,27 +203,15 @@ function AccentText({
   return (
     <span
       className={className}
-      style={{ position: "relative", display: "inline-block", ...style }}
+      style={{
+        display: "inline-block",
+        backgroundColor: "#fbf6e6",
+        padding: "1px 6px",
+        borderRadius: "3px",
+        ...style,
+      }}
     >
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          inset: 0,
-          // 下敷き文字をクリーム色（紙質感に合う暖色系オフホワイト）にして、
-          // 上に乗る色グラデを邪魔せず、暗色背景でも文字が浮き上がるように。
-          // text-shadow で 4 方向に細い縁取りを敷くことで、上の色文字の周囲
-          // にごく細いクリームの輪郭が出る。
-          color: "#fbf6e6",
-          textShadow:
-            "0.3px 0 0 #fbf6e6, -0.3px 0 0 #fbf6e6, 0 0.3px 0 #fbf6e6, 0 -0.3px 0 #fbf6e6",
-        }}
-      >
-        {children}
-      </span>
-      <span style={{ position: "relative", ...accentTextStyle(color) }}>
-        {children}
-      </span>
+      <span style={accentTextStyle(color)}>{children}</span>
     </span>
   );
 }
@@ -320,7 +302,7 @@ export function Card({ data, date, ref }: Props) {
           </div>
           <AccentText
             color={data.card_color}
-            className="text-[12px] tracking-[0.3em] font-bold"
+            className="text-[12px] tracking-[0.3em] font-black"
             style={{
               fontFamily: "var(--font-noto-sans-jp), sans-serif",
             }}
@@ -376,15 +358,17 @@ export function Card({ data, date, ref }: Props) {
           }}
         />
 
-        <AccentText
-          color={data.card_color}
-          className="text-[9px] tracking-[0.2em] font-bold mb-[8px] block"
-          style={{
-            fontFamily: "var(--font-noto-sans-jp), sans-serif",
-          }}
-        >
-          CHARACTERISTICS
-        </AccentText>
+        <div className="mb-[8px]">
+          <AccentText
+            color={data.card_color}
+            className="text-[9px] tracking-[0.2em] font-bold"
+            style={{
+              fontFamily: "var(--font-noto-sans-jp), sans-serif",
+            }}
+          >
+            CHARACTERISTICS
+          </AccentText>
+        </div>
         <ul className="list-none p-0 m-0 mb-4">
           {data.characteristics.map((c, i) => (
             <li
@@ -419,15 +403,17 @@ export function Card({ data, date, ref }: Props) {
             className="absolute inset-0 rounded-[12px] pointer-events-none"
             style={accentBorderStyle(data.card_color)}
           />
-          <AccentText
-            color={data.card_color}
-            className="text-[9px] tracking-[0.2em] font-bold mb-[6px] relative block"
-            style={{
-              fontFamily: "var(--font-noto-sans-jp), sans-serif",
-            }}
-          >
-            QUESTION TO SELF
-          </AccentText>
+          <div className="mb-[6px] relative">
+            <AccentText
+              color={data.card_color}
+              className="text-[9px] tracking-[0.2em] font-bold"
+              style={{
+                fontFamily: "var(--font-noto-sans-jp), sans-serif",
+              }}
+            >
+              QUESTION TO SELF
+            </AccentText>
+          </div>
           <div
             className="leading-[1.7] relative"
             style={{
