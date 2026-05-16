@@ -35,13 +35,21 @@ const TRANSITION_HALF = 5;
  * 混色する。最後に背景色（colors[0]）でフォールバックを敷いて、点が
  * カバーしきれない領域も色が抜けないようにする。
  */
+/**
+ * 各点の純色領域の比率。radius のうち内側 70% は純色のまま保ち、外側
+ * 30% だけ透明に向けてフェードさせる。バーで使う比率と見た目が乖離
+ * しないよう、点の中心だけ純色にせず、円としてしっかり色が出る作り。
+ */
+const SCATTER_PURE_RATIO = 0.7;
+
 function buildScatterBackground(
   colors: string[],
   points: NonNullable<CardData["card_color"]["scatter_points"]>,
 ): string {
   const layers = points.map((p) => {
     const color = colors[p.color_index] ?? colors[0];
-    return `radial-gradient(circle at ${p.x}% ${p.y}%, ${color} 0%, transparent ${p.radius}%)`;
+    const pure = Math.round(p.radius * SCATTER_PURE_RATIO);
+    return `radial-gradient(circle at ${p.x}% ${p.y}%, ${color} 0%, ${color} ${pure}%, transparent ${p.radius}%)`;
   });
   // 最後に主色のベタ塗りを敷いて、点の隙間が透明にならないようにする
   const baseColor = colors[0] ?? "#1a1a1a";
@@ -50,8 +58,11 @@ function buildScatterBackground(
 
 /**
  * scatter モードのときの、キーフレーズ下の横バー用 linear gradient を組み立てる。
- * scatter_points の各色の出現数を重みにして、その比率を stops に反映する。
- * これで外枠（scatter）とバーの色配分が見た目で揃う。
+ *
+ * 各色の重みは「点の radius² の合計」で計算する。これは scatter 背景での実描画
+ * 面積に対応するので、バーと枠（scatter 背景）の色配分が視覚的に揃う。
+ * radius を無視して「点数」だけで按分すると、AI が radius で意図した量感
+ * （小さい点 vs 大きい点）と枠が乖離してしまうため、面積基準を採用している。
  */
 function buildBarFromScatter(color: CardData["card_color"]): string {
   const { colors, scatter_points } = color;
@@ -59,24 +70,26 @@ function buildBarFromScatter(color: CardData["card_color"]): string {
     return colors[0] ?? "#1a1a1a";
   }
 
-  // 各色の出現数を集計
-  const counts = colors.map(
-    (_, i) => scatter_points.filter((p) => p.color_index === i).length,
+  // 各色の面積（radius² の合計）を集計
+  const weights = colors.map((_, i) =>
+    scatter_points
+      .filter((p) => p.color_index === i)
+      .reduce((sum, p) => sum + p.radius * p.radius, 0),
   );
-  const total = counts.reduce((a, b) => a + b, 0);
+  const total = weights.reduce((a, b) => a + b, 0);
   if (total === 0) return colors[0] ?? "#1a1a1a";
 
-  // 出現比率を累積パーセントに変換して stops を作る
+  // 面積比を累積パーセントに変換して stops を作る
   // colors[0] が 60% / colors[1] が 30% / colors[2] が 10% なら
   // → stops = [0, 60, 90]（buildGradient と同じ「境界」解釈）
   const stops: number[] = [];
   let cumulative = 0;
-  for (let i = 0; i < counts.length; i++) {
-    if (counts[i] === 0) continue;
+  for (let i = 0; i < weights.length; i++) {
+    if (weights[i] === 0) continue;
     stops.push(Math.round(cumulative));
-    cumulative += (counts[i] / total) * 100;
+    cumulative += (weights[i] / total) * 100;
   }
-  const activeColors = colors.filter((_, i) => counts[i] > 0);
+  const activeColors = colors.filter((_, i) => weights[i] > 0);
 
   return buildGradient({
     colors: activeColors,
