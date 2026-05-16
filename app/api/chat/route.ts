@@ -31,6 +31,11 @@ function detectMode(messages: UIMessage[]): PromptMode {
   // 直近の user メッセージで明示的に final トリガが指定されていれば final。
   // それ以外は、直近の assistant メッセージが既に final モードに入っているかで判断する
   // （途中復旧・続きの再生成リクエストも final として扱うため）。
+  //
+  // final はさらに 2 ターンに分かれる:
+  // - final-card:   直近 user が <<NEXT_TURN_CARD_JSON>>、または直近 assistant が
+  //                 既にカード JSON 生成を始めている（途中復旧時のため）
+  // - final-report: それ以外の final 判定（レポート本文を生成中 or これから書く）
   let lastUserText: string | null = null;
   let lastAssistantText: string | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -42,15 +47,20 @@ function detectMode(messages: UIMessage[]): PromptMode {
       lastAssistantText = text;
     if (lastUserText !== null && lastAssistantText !== null) break;
   }
-  if (lastUserText === FINAL_REPORT_TRIGGER) return "final";
-  if (lastUserText === NEXT_TURN_CARD_JSON_TOKEN) return "final";
+
+  if (lastUserText === NEXT_TURN_CARD_JSON_TOKEN) return "final-card";
+
+  if (lastUserText === FINAL_REPORT_TRIGGER) return "final-report";
+
   if (lastAssistantText) {
     if (
       lastAssistantText.includes(READY_FOR_FINAL_TOKEN) ||
       lastAssistantText.includes(REPORT_DONE_TOKEN) ||
       lastAssistantText.includes(FINAL_MODE_MARKER)
     ) {
-      return "final";
+      // REPORT_DONE が出ているならレポートは完了済み → 次はカードターン
+      if (lastAssistantText.includes(REPORT_DONE_TOKEN)) return "final-card";
+      return "final-report";
     }
   }
   return "dialogue";
@@ -59,10 +69,10 @@ function detectMode(messages: UIMessage[]): PromptMode {
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
   const mode = detectMode(messages);
+  const isFinal = mode === "final-report" || mode === "final-card";
   // 対話モードのときだけ、メッセージ履歴からフェーズと領域カバー状態を推論して
   // プロンプトに反映する。最終分析モードでは履歴の流れが固定なのでコンテキストは不要。
-  const dialogueContext =
-    mode === "dialogue" ? inferDialogueContext(messages) : undefined;
+  const dialogueContext = !isFinal ? inferDialogueContext(messages) : undefined;
   const system = buildSystemPrompt(mode, dialogueContext);
   const modelMessages = await convertToModelMessages(messages);
 
@@ -77,13 +87,15 @@ export async function POST(req: Request) {
       });
     }
     return streamGoogleResponse({
-      model: mode === "final" ? FINAL_MODEL : DIALOGUE_MODEL,
+      model: isFinal ? FINAL_MODEL : DIALOGUE_MODEL,
       apiKey,
       system,
       messages: modelMessages,
       temperature: 0.7,
       signal: req.signal,
-      mode,
+      // SENTINEL 監視は「対話ターンかどうか」だけが必要なので、final-* は
+      // "final" に集約して渡す。
+      mode: isFinal ? "final" : "dialogue",
     });
   }
 

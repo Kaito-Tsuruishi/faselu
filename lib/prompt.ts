@@ -30,8 +30,13 @@ import {
 /**
  * セッションタイプ。サーバー側でメッセージ履歴から自動判定し、
  * これに応じて system prompt を組み立てる。
+ *
+ * 最終分析は 2 ターン構成だが、各ターンは独立した API リクエストになるので、
+ * ターンごとに必要な仕様だけを system prompt に含めて軽量化している。
+ * - final-report: 詳細レポート生成ターン（カード JSON 仕様は不要）
+ * - final-card:   カード JSON 生成ターン（レポート仕様は不要）
  */
-export type PromptMode = "dialogue" | "final";
+export type PromptMode = "dialogue" | "final-report" | "final-card";
 
 /**
  * 全モード共通の前提（役割定義・安全弁・個人情報の扱い）。
@@ -151,11 +156,11 @@ const DIALOGUE_BASE = `# モード: 対話
 ユーザーが自傷・自殺念慮、重度のメンタル不調、虐待・DV・性暴力被害、医療・カウンセリング領域への踏み込みを示した場合、応答全体を \`<<SAFETY_TERMINATE>>\` 一語だけにする。これは COMMON_HEADER で定義済みのルールを再確認。`;
 
 /**
- * 最終分析モード用プロンプト。詳細レポート（ターン 1）とカード JSON（ターン 2）の
- * 両方の仕様を含む。フロントから送られてくるメッセージを見て、AI 自身がどちらの
- * ターンかを判断する。
+ * 最終分析モードの共通ヘッダー。レポートターン / カードターンの両方で前提として
+ * 必要な「4 観点の説明」「節度」を含む。各ターンプロンプトの先頭にこの文字列を
+ * 結合して使う。
  */
-const FINAL_PROMPT = `# モード: 最終分析
+const FINAL_COMMON_HEADER = `# モード: 最終分析
 
 ここまでの対話で集めた素材を、ここで初めて分析として統合する。
 浅い診断（「優しい性格ですね」「向上心が強いですね」）ではなく、対話内容そのものに根拠を持つ分析を書く。
@@ -225,16 +230,13 @@ const FINAL_PROMPT = `# モード: 最終分析
 - **根拠を地の文に織り込む**: 観察を書くなら、それを裏付ける具体的な発言箇所を「〜とお話しいただいた箇所では」のように要約しながら織り込む。引用なしの断定は避ける。
 - **「実は〜なのではないか」「無意識のうちに〜」は使ってよい**: ただしセクション 8（本人がまだ気づいていない核心）に集中させる。各観点セクション（2〜5）は観察主体、最終セクションで踏み込んだ仮説を出す、というメリハリを付ける。
 
-# このモードは 2 ターンに分かれる
+`;
 
-- ターン 1: 詳細レポートを書く（カード JSON は出さない）
-- ターン 2: ユーザーから \`<<NEXT_TURN_CARD_JSON>>\` というメッセージが届いたら、カード用 JSON だけを出す（レポートは書き直さない）
-
-直前のユーザーメッセージが \`<<NEXT_TURN_CARD_JSON>>\` ならターン 2、それ以外ならターン 1 として応答する。
-
----
-
-# ターン 1: 詳細レポート
+/**
+ * レポートターン専用プロンプト。FINAL_COMMON_HEADER に続けて使う。
+ * カード JSON の仕様は含めない（このターンでは出力しないため）。
+ */
+const FINAL_REPORT_BODY = `# このターン: 詳細レポートを書く
 
 ## 出力の冒頭
 
@@ -274,11 +276,19 @@ const FINAL_PROMPT = `# モード: 最終分析
 
 このトークン以降には何も書かない。JSON はこのターンでは出さない。
 
----
+# 出力に関する厳守事項
 
-# ターン 2: カード用 JSON
+- JSON を出力しない（カード生成は別ターンで行う）。
+- 値が決まらない場合も必ず全セクションを埋める。
+`;
 
-ユーザーから \`<<NEXT_TURN_CARD_JSON>>\` が届いたら、前置きを一切書かず、以下のスキーマの JSON コードブロックだけを出力する。
+/**
+ * カードターン専用プロンプト。FINAL_COMMON_HEADER に続けて使う。
+ * 詳細レポートの仕様は含めない（このターンでは出力しないため）。
+ */
+const FINAL_CARD_BODY = `# このターン: カード用 JSON を書く
+
+前置きを一切書かず、以下のスキーマの JSON コードブロックだけを出力する。直前の assistant 履歴に詳細レポート本文があるので、その内容を素材にして JSON を組み立てる。
 
 \`\`\`json
 {
@@ -441,8 +451,7 @@ scatter モードでは **色を複数の位置に散らばらせて、絵画的
 
 # 出力に関する厳守事項
 
-- ターン 1（詳細レポート）では JSON を出力しない。
-- ターン 2（カード JSON）では JSON 以外のコードブロックや前置きを出力しない。
+- JSON 以外のコードブロックや前置きを出力しない。
 - JSON のキー名・構造を変更しない。
 - 値が決まらない場合も必ず全フィールドを埋める（空文字や null を返さない）。`;
 
@@ -450,7 +459,12 @@ scatter モードでは **色を複数の位置に散らばらせて、絵画的
  * mode と対話コンテキストから、system prompt を組み立てる。
  *
  * - dialogue モード: DIALOGUE_BASE + フェーズ別の追加指示
- * - final モード: FINAL_PROMPT のみ
+ * - final-report モード: FINAL_COMMON_HEADER + FINAL_REPORT_BODY
+ * - final-card モード:   FINAL_COMMON_HEADER + FINAL_CARD_BODY
+ *
+ * 最終分析の 2 ターンはそれぞれ独立した API リクエストになるため、ターンごとに
+ * 必要な仕様だけを system prompt に含める（不要側の仕様文を渡さないことで、
+ * 入力トークン削減 + AI が無関係な制約に引きずられるのを防ぐ）。
  *
  * 対話モードでも context が未指定なら、フェーズ追加指示なしで基底だけを返す
  * （後方互換 + デバッグ用）。
@@ -459,8 +473,11 @@ export function buildSystemPrompt(
   mode: PromptMode,
   context?: DialogueContext,
 ): string {
-  if (mode === "final") {
-    return `${COMMON_HEADER}\n\n${FINAL_PROMPT}`;
+  if (mode === "final-report") {
+    return `${COMMON_HEADER}\n\n${FINAL_COMMON_HEADER}\n\n${FINAL_REPORT_BODY}`;
+  }
+  if (mode === "final-card") {
+    return `${COMMON_HEADER}\n\n${FINAL_COMMON_HEADER}\n\n${FINAL_CARD_BODY}`;
   }
   if (!context) {
     return `${COMMON_HEADER}\n\n${DIALOGUE_BASE}`;
