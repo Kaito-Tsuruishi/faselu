@@ -43,6 +43,10 @@ export function useCardImageExport(
         style: {
           transform: "none",
           transformOrigin: "top left",
+          // box-shadow は下方向 16px に伸びていて、html-to-image がそれを
+          // キャプチャ範囲に含めてしまうと下端 4 隅にうっすら影が残って
+          // 「四角い薄ベージュ」に見える。保存時だけシャドウを外す。
+          boxShadow: "none",
         },
       });
       if (!blob) {
