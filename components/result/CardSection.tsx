@@ -32,7 +32,7 @@ export function CardSection({ data, cardRef, saving, onSave }: Props) {
       </ResponsiveCardWrapper>
 
       <p
-        className="mt-8 text-[11px] text-center"
+        className="mt-12 text-[11px] text-center"
         style={{ color: "var(--color-muted-3)" }}
       >
         信頼している人にだけ見せてください。

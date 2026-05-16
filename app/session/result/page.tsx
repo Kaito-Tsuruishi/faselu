@@ -39,6 +39,18 @@ export default function ResultPage() {
     }
   }, [router]);
 
+  // PDF / 画像保存に使う重いライブラリを表示直後にプリロードする。
+  // 実際のボタン押下時にロードが始まると 3〜8 秒待たされるため、結果が
+  // 見えた時点でバックグラウンド取得を開始しておく。動的 import なので
+  // メインスレッドは詰まらず、保存しないまま閉じても害は無い（HTTP
+  // キャッシュに乗るだけ）。
+  useEffect(() => {
+    if (!result) return;
+    void import("@react-pdf/renderer");
+    void import("@/components/ReportPdf");
+    void import("html-to-image");
+  }, [result]);
+
   if (!result) {
     return (
       <main className="calm-bg flex-1 flex items-center justify-center">

@@ -42,11 +42,95 @@ const TRANSITION_HALF = 5;
  */
 const SCATTER_PURE_RATIO = 0.7;
 
+type ScatterPoint = NonNullable<
+  CardData["card_color"]["scatter_points"]
+>[number];
+
+/**
+ * AI が指定した scatter_points の (x, y) はカード全体 (0-100) の座標だが、
+ * 実際にはカード中央は paper-dark に覆われて見えない。外周 22px の枠
+ * だけが scatter 背景の見える領域。
+ *
+ * AI の意図する面積比が見える領域で正しく表現されるように、各点を
+ * 「中心からの距離」に応じて枠領域へ投影する。意図は 3 軸で汲み取る:
+ *
+ *  - 方角: 元の (x, y) が偏っている方向は、その方向の辺に投影して保持
+ *  - 存在感: 元の radius は概ね保持。中央寄り点だけやや控えめにする
+ *  - 広がり: 中心点はカード全体に広がる主色として扱い、4 辺へ分散
+ *
+ * 中心からの距離 d (0〜70.7) で 3 段階に分岐:
+ *  - d < 15: 中央寄り。1 点を 4 辺に複製し、radius は元の 0.5 倍
+ *  - 15 ≤ d < 30: 中間。最近接 1 辺に投影、radius 0.7 倍
+ *      （以前は角に投影していたが、辺の中央部が空になって主色が枠から
+ *       消える問題があったため、辺投影に変更）
+ *  - d ≥ 30: 縁寄り。最近接 1 辺に投影、radius そのまま
+ */
+function projectPointsToFrame(points: ScatterPoint[]): ScatterPoint[] {
+  const projected: ScatterPoint[] = [];
+
+  const projectToNearestEdge = (
+    p: ScatterPoint,
+    radius: number,
+  ): ScatterPoint => {
+    const distTop = p.y;
+    const distBottom = 100 - p.y;
+    const distLeft = p.x;
+    const distRight = 100 - p.x;
+    const min = Math.min(distTop, distBottom, distLeft, distRight);
+    let nx = p.x;
+    let ny = p.y;
+    if (min === distTop) ny = 0;
+    else if (min === distBottom) ny = 100;
+    else if (min === distLeft) nx = 0;
+    else nx = 100;
+    return { color_index: p.color_index, x: nx, y: ny, radius };
+  };
+
+  for (const p of points) {
+    const dx = p.x - 50;
+    const dy = p.y - 50;
+    const d = Math.hypot(dx, dy);
+
+    if (d < 15) {
+      // 中央寄り点: 4 辺に複製して全方向に広がりを出す
+      const r = Math.max(8, Math.round(p.radius * 0.5));
+      projected.push({ color_index: p.color_index, x: p.x, y: 0, radius: r });
+      projected.push({ color_index: p.color_index, x: 100, y: p.y, radius: r });
+      projected.push({ color_index: p.color_index, x: p.x, y: 100, radius: r });
+      projected.push({ color_index: p.color_index, x: 0, y: p.y, radius: r });
+      continue;
+    }
+
+    if (d < 30) {
+      // 中間: 最近接 1 辺に投影、radius を控えめに
+      projected.push(
+        projectToNearestEdge(p, Math.max(10, Math.round(p.radius * 0.7))),
+      );
+      continue;
+    }
+
+    // 縁寄り: 最近接 1 辺に投影、radius そのまま
+    projected.push(projectToNearestEdge(p, p.radius));
+  }
+  return projected;
+}
+
 function buildScatterBackground(
   colors: string[],
   points: NonNullable<CardData["card_color"]["scatter_points"]>,
 ): string {
-  const layers = points.map((p) => {
+  // 各点を「外周の見える領域」へ投影してから描画する。AI が指定した面積比を
+  // 縁の中で正しく表現するため。projectPointsToFrame の意図はその docstring 参照。
+  const framePoints = projectPointsToFrame(points);
+
+  // CSS の複数 background は配列の先頭が最前面。末色（colors の後ろ寄りの
+  // index）は面積が小さい差し色なので、点が重なったときに主色・副色に
+  // 埋もれてしまう。color_index の降順で並べて、末色 → 副色 → 主色 の
+  // 順に描画することで、小さい差し色が最前面に出て役割を果たせる。
+  const sortedPoints = framePoints
+    .slice()
+    .sort((a, b) => b.color_index - a.color_index);
+  const layers = sortedPoints.map((p) => {
     const color = colors[p.color_index] ?? colors[0];
     const pure = Math.round(p.radius * SCATTER_PURE_RATIO);
     return `radial-gradient(circle at ${p.x}% ${p.y}%, ${color} 0%, ${color} ${pure}%, transparent ${p.radius}%)`;

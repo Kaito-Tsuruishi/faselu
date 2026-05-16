@@ -47,19 +47,29 @@ const MAX_TURNS_PER_TOPIC = 3;
 const WRAPPING_UNCOVERED_THRESHOLD = 3;
 
 /**
+ * ready_to_final に進むために、最低でも主領域として触れていてほしい領域数。
+ * 副領域として触れただけでは「素材が薄い」と判断し、deepening フェーズで
+ * 主領域として深掘りに行く。
+ */
+const MIN_PRIMARY_COVERAGE = 5;
+
+/**
  * 対話のフェーズ。サーバーがメッセージ履歴から推論する。
  *
  * - opening: 対話開始直後（0 AI ターン）
  * - collecting: 通常の素材集め。現在の領域について継続して掘り下げる
  * - transitioning: 現在の領域が打ち止め（合計 3 回触れた）→ 別の未踏領域へ転換
  * - wrapping: 未踏領域が残り少ない → 駆け足でカバー中
- * - ready_to_final: 全領域カバー済み → <<READY_FOR_FINAL>> を出す
+ * - deepening: 未踏 0 だが主領域カバーが MIN_PRIMARY_COVERAGE 未満
+ *              → 副領域だけで触れた領域を、主領域として深掘りに行く
+ * - ready_to_final: 全領域カバー済み + 主領域カバー十分 → <<READY_FOR_FINAL>> を出す
  */
 export type DialoguePhase =
   | "opening"
   | "collecting"
   | "transitioning"
   | "wrapping"
+  | "deepening"
   | "ready_to_final";
 
 /**
@@ -71,10 +81,14 @@ export type DialogueContext = {
   aiTurnCount: number;
   /** ユーザーが送ったターン数（内部トリガは除外） */
   userTurnCount: number;
-  /** 既に触れたユニーク領域 */
+  /** 既に触れたユニーク領域（主領域 + 副領域すべて） */
   coveredTopics: Topic[];
   /** まだ触れていない領域 */
   uncoveredTopics: Topic[];
+  /** 主領域（タグ先頭）として 1 回以上触れた領域 */
+  primaryCoveredTopics: Topic[];
+  /** 主領域として触れていない領域（副領域でだけ触れた / 完全に未踏 を含む） */
+  primaryUncoveredTopics: Topic[];
   /** 直近 AI ターンの主領域（タグの先頭）。次のターンの「現在の領域」候補 */
   currentTopic: Topic | null;
   /** 現在の領域に累計で何回触れたか（連続ではなく合計） */
@@ -180,11 +194,18 @@ export function inferDialogueContext(messages: UIMessage[]): DialogueContext {
 
   // 領域カバー集計（複数タグなら全部 covered に入れる）
   const coveredSet = new Set<Topic>();
+  // 主領域（タグ先頭）として触れた領域を別途集計
+  const primaryCoveredSet = new Set<Topic>();
   for (const info of infos) {
     for (const t of info.topics) coveredSet.add(t);
+    if (info.topics[0]) primaryCoveredSet.add(info.topics[0]);
   }
   const coveredTopics = TOPICS.filter((t) => coveredSet.has(t));
   const uncoveredTopics = TOPICS.filter((t) => !coveredSet.has(t));
+  const primaryCoveredTopics = TOPICS.filter((t) => primaryCoveredSet.has(t));
+  const primaryUncoveredTopics = TOPICS.filter(
+    (t) => !primaryCoveredSet.has(t),
+  );
 
   // 現在の領域 = 直近ターンの主領域（タグ先頭）
   const currentTopic = infos[infos.length - 1]?.topics[0] ?? null;
@@ -202,12 +223,27 @@ export function inferDialogueContext(messages: UIMessage[]): DialogueContext {
   const currentTopicExhausted =
     currentTopic !== null && currentTopicTotalTurns >= MAX_TURNS_PER_TOPIC;
 
-  // フェーズ判定。ターン上限ではなく「領域カバーの達成」で判定する。
+  // フェーズ判定。判定順序が重要:
+  // 1. opening は最優先 (初手)
+  // 2. ready_to_final は「未踏 0 + 主領域カバー十分」のときだけ
+  // 3. deepening は「未踏 0 + 主領域カバー不足」。副領域だけで触れた領域を
+  //    主領域として深掘りに行くフェーズ。wrapping より先にチェックする。
+  // 4. transitioning は currentTopic 打ち止め + 未踏あり
+  // 5. wrapping は未踏が残り少ない場合の駆け足消化
+  // 6. その他は通常深掘り (collecting)
   let phase: DialoguePhase;
   if (aiTurnCount === 0) {
     phase = "opening";
-  } else if (uncoveredTopics.length === 0) {
+  } else if (
+    uncoveredTopics.length === 0 &&
+    primaryCoveredTopics.length >= MIN_PRIMARY_COVERAGE
+  ) {
     phase = "ready_to_final";
+  } else if (
+    uncoveredTopics.length === 0 &&
+    primaryCoveredTopics.length < MIN_PRIMARY_COVERAGE
+  ) {
+    phase = "deepening";
   } else if (currentTopicExhausted && uncoveredTopics.length > 0) {
     phase = "transitioning";
   } else if (uncoveredTopics.length <= WRAPPING_UNCOVERED_THRESHOLD) {
@@ -222,6 +258,8 @@ export function inferDialogueContext(messages: UIMessage[]): DialogueContext {
     userTurnCount,
     coveredTopics,
     uncoveredTopics,
+    primaryCoveredTopics,
+    primaryUncoveredTopics,
     currentTopic,
     currentTopicTotalTurns,
     currentTopicExhausted,
@@ -231,9 +269,25 @@ export function inferDialogueContext(messages: UIMessage[]): DialogueContext {
 /**
  * AI 応答のテキストから領域タグ <<TOPIC:〜>> を取り除いたものを返す。
  * フロント表示用の clean text を作るときに使う。
+ *
+ * 加えて、AI が改行などをエスケープ済みのリテラル文字列で出力してくる
+ * ことがある (例: `教えてください。\n\n<<TOPIC:〜>>`) のを実際の制御文字に
+ * 戻す。バックスラッシュ自体のエスケープを先に処理してから、他のエスケープを
+ * 個別に展開する順序にしている。
  */
 export function stripTopicTag(text: string): string {
-  return text.replace(TOPIC_TAG_RE, "").trimEnd();
+  // バックスラッシュ単独を一時退避してから他のエスケープを展開し、最後に戻す。
+  // 退避用文字は通常テキストに現れない U+E000 (Unicode 私用領域) を使う。
+  const placeholder = "\uE000";
+  return text
+    .replace(/\\\\/g, placeholder)
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(new RegExp(placeholder, "g"), "\\")
+    .replace(TOPIC_TAG_RE, "")
+    .trimEnd();
 }
 
 /**
@@ -245,7 +299,7 @@ export function buildDialoguePhaseInstruction(ctx: DialogueContext): string {
   const listTopics = (topics: readonly Topic[]) =>
     topics.length > 0 ? topics.join(" / ") : "(残りなし)";
 
-  const coverage = `カバー済み領域: ${listTopics(ctx.coveredTopics)}\n未踏領域: ${listTopics(ctx.uncoveredTopics)}\n現在の領域: ${ctx.currentTopic ?? "未確定"}\n現在の領域の累計ターン: ${ctx.currentTopicTotalTurns} / ${MAX_TURNS_PER_TOPIC}\nAI ターン総数: ${ctx.aiTurnCount}\nユーザー発言数: ${ctx.userTurnCount}`;
+  const coverage = `カバー済み領域: ${listTopics(ctx.coveredTopics)}\n未踏領域: ${listTopics(ctx.uncoveredTopics)}\n主領域として触れた領域: ${listTopics(ctx.primaryCoveredTopics)}\n主領域未カバー領域: ${listTopics(ctx.primaryUncoveredTopics)}\n現在の領域: ${ctx.currentTopic ?? "未確定"}\n現在の領域の累計ターン: ${ctx.currentTopicTotalTurns} / ${MAX_TURNS_PER_TOPIC}\nAI ターン総数: ${ctx.aiTurnCount}\nユーザー発言数: ${ctx.userTurnCount}`;
 
   switch (ctx.phase) {
     case "opening":
@@ -302,6 +356,15 @@ ${coverage}
 3. 未踏領域 [${listTopics(ctx.uncoveredTopics)}] の中から 1 つ選び、その領域の導入の問いを投げる。
 4. 応答末尾に \`<<TOPIC:選んだ領域名>>\` を必ず付ける。
 
+## タグの主領域は必ず変える
+
+応答末尾のタグは複数領域可だが、**先頭（主領域）は必ず別の未踏領域に変える**。
+
+- ✗ NG: \`<<TOPIC:${ctx.currentTopic ?? "現在の領域"}, 恋愛>>\` （現在の領域を主領域のまま続けて、副領域だけ未踏にする）
+- ✓ OK: \`<<TOPIC:恋愛>>\` または \`<<TOPIC:恋愛, ${ctx.currentTopic ?? "現在の領域"}>>\` （主領域が未踏に変わっている）
+
+副領域として現在の領域を並べるのは、ユーザーの応答が自然に現在の領域に触れている場合のみ許す。主にこのターンで深掘りするのは新しい未踏領域。
+
 未踏領域は対話の流れに合うものを優先する。具体的な例は以下：
 
 - 恋愛: 「これまでの恋愛で印象に残っているエピソードを 1 つ教えてください」
@@ -325,6 +388,22 @@ ${coverage}
 3. 応答末尾に \`<<TOPIC:選んだ領域名>>\` を必ず付ける。
 
 未踏領域がすべて埋まったら、次のターンで READY_FOR_FINAL に移行する。`;
+
+    case "deepening":
+      return `# 現在のフェーズ: 主領域カバー不足の補完
+
+${coverage}
+
+全領域に一度は触れたが、副領域として浅くしか触れていない領域が残っている。**主領域として深掘りに行く** ターン。
+
+このターンの方針：
+
+1. 主領域未カバー領域 [${listTopics(ctx.primaryUncoveredTopics)}] の中から 1 つを、対話の流れに最も合うものを選ぶ。
+2. その領域は過去のターンで **副領域として既に触れられている可能性が高い**。履歴を遡って、その領域がどの assistant ターンで副領域に並んでいたか、その時ユーザーがどんな発言をしていたかを確認する。
+3. 確認できた素材（ユーザーの実際の発言、具体エピソード、感情）を **起点にして問いを組み立てる**。例えば履歴で「家族との時間も大事」と価値観領域に副次的に触れた箇所があれば、価値観領域として「先ほど家族との時間を大事にしているとお話しいただきましたが、その『大事』という感覚は具体的にどんな瞬間に強く出ますか」のように、過去の発言を起点に深掘りする。
+4. 既出の素材を完全に無視して、その領域の汎用的な導入問いを新規に投げない。対話の連続性を保つ。
+5. 履歴に該当する副領域言及が見つからない場合のみ、通常の導入問いを投げてよい。
+6. 応答末尾の \`<<TOPIC:選んだ領域名>>\` の **先頭は必ず未カバーの領域**にする。副領域として現在の領域を並べるのは可だが、主領域は必ず変える。`;
 
     case "ready_to_final":
       return `# 現在のフェーズ: 最終分析へ移行
