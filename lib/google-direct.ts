@@ -92,19 +92,47 @@ export async function streamGoogleResponse({
       : {}),
   };
 
-  // Google AI Studio API は無料 tier では 500 INTERNAL や 503 UNAVAILABLE を
-  // 頻繁に返してくる (公式 troubleshooting でも「リトライしろ」が公式回答)。
+  // Google AI Studio API は無料 tier では 500 / 503 / 502 / 504 を頻繁に返してくる
+  // (公式 troubleshooting でも「リトライしろ」が公式回答)。
   // ユーザー側に「通信エラー」を見せずに自動で retry する。
   // signal が abort されたら即諦める (ユーザー意図的中断)。
-  // Vercel Hobby のハードタイムアウトが 60 秒。Flash Lite の通常応答は 10〜30 秒
-  // なので、合計 7 秒程度のリトライ予算なら最悪 37 秒で完了し本番でも安全圏。
+  //
+  // リトライ間隔はステータス別に決める:
+  // - 500 INTERNAL は単一ノードの transient bug。直後に別ノードへ振られると通る
+  //   ことが多いので、即時リトライ (0ms) で構わない。
+  // - 503 UNAVAILABLE / 502 / 504 はサーバー過負荷や LB の問題なので、少しだけ
+  //   待った方が次ノードに振り分けられる確率が上がる。
+  // - 429 RATE LIMIT はクライアント側起因なので、必ず待たないと同じエラーを繰り返す。
+  // - ネットワーク例外 (fetch reject) は接続自体の問題なので少し待つ。
+  //
+  // Vercel Hobby のハードタイムアウト 60 秒以内に収めるため、429 系の長い待ちでも
+  // 合計 7 秒以内に抑える。
   const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
-  const RETRY_DELAYS_MS = [500, 1500, 3000, 5000];
+  const MAX_ATTEMPTS = 5;
+
+  const delayForStatus = (status: number, attempt: number): number => {
+    // attempt は 0-indexed (1 回目失敗後の待機時間)
+    if (status === 500) return 0;
+    if (status === 502 || status === 503 || status === 504) {
+      // 0, 200ms, 500ms, 1000ms, 2000ms
+      return [0, 200, 500, 1000, 2000][attempt] ?? 2000;
+    }
+    if (status === 429) {
+      // RATE LIMIT は指数バックオフ: 1000, 2000, 4000ms
+      return [1000, 2000, 4000][attempt] ?? 4000;
+    }
+    return 500;
+  };
+  const delayForNetworkError = (attempt: number): number => {
+    // 0, 200, 500, 1000ms
+    return [0, 200, 500, 1000][attempt] ?? 1000;
+  };
 
   let upstream: Response | null = null;
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) break;
+    let nextDelayMs = 0;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -125,6 +153,7 @@ export async function streamGoogleResponse({
           status: 502,
         });
       }
+      nextDelayMs = delayForStatus(res.status, attempt);
     } catch (err) {
       // abort なら即終了。それ以外のネットワーク系エラーは retry 対象
       if (signal?.aborted) throw err;
@@ -133,10 +162,11 @@ export async function streamGoogleResponse({
         (err.name === "AbortError" || /aborted/i.test(err.message));
       if (isAbortError) throw err;
       lastErr = err;
+      nextDelayMs = delayForNetworkError(attempt);
     }
-    const delay = RETRY_DELAYS_MS[attempt];
-    if (delay !== undefined) {
-      await new Promise((r) => setTimeout(r, delay));
+    if (attempt + 1 >= MAX_ATTEMPTS) break;
+    if (nextDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, nextDelayMs));
     }
   }
 
