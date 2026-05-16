@@ -17,7 +17,7 @@ export default function Home() {
             color: "var(--color-muted-3)",
           }}
         >
-          face yourself
+          自己分析サービス
         </span>
       </header>
 
@@ -27,7 +27,7 @@ export default function Home() {
             className="block text-[11px] tracking-[0.24em] font-bold uppercase mb-6"
             style={{ color: "var(--color-accent)" }}
           >
-            A 30-min conversation with yourself
+            Face yourself
           </span>
           <h1
             className="font-serif-jp text-[34px] sm:text-[44px] leading-[1.55] mb-12 font-semibold"
@@ -36,20 +36,22 @@ export default function Home() {
               letterSpacing: "-0.01em",
             }}
           >
-            自分の輪郭を、
+            分類されない、
             <br />
-            言葉でなぞる。
+            あなた自身を、
+            <br />
+            探しに。
           </h1>
 
           <p
             className="font-serif-jp text-[15px] sm:text-[16px] leading-[2.1] mb-16"
             style={{ color: "var(--color-ink-text-soft)" }}
           >
-            30 分の対話で、認知の癖や、避けてきた問いを観察します。
+            褒めるだけでも、慰めるだけでもない。
             <br />
-            慰めも、励ましも、答えも返しません。
+            矛盾を指摘されるし、避けてきたものにも触れる。
             <br />
-            ただ、あなたが普段ひとりでは見ない角度から、問いを置きます。
+            ただ、あなたと向き合います。
           </p>
 
           <Link
