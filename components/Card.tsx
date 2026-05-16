@@ -115,29 +115,97 @@ function projectPointsToFrame(points: ScatterPoint[]): ScatterPoint[] {
   return projected;
 }
 
-function buildScatterBackground(
+/**
+ * scatter モードの背景を SVG (radialGradient + rect) で描画するための React 要素を返す。
+ *
+ * CSS の `background: radial-gradient(...), radial-gradient(...), ...` で
+ * 描画する旧実装は、html-to-image での canvas キャプチャ時にフェード領域が
+ * 潰れて、保存画像で縁の色が失われる問題があった。SVG ベースに切り替える
+ * ことで、ブラウザのネイティブ SVG レンダラが正確にラスタライズしてくれる
+ * ので、UI 表示と保存画像が完全一致する。
+ *
+ * 描画は次の順で行う:
+ *   1. <rect> で主色 colors[0] のベタ塗り (点の隙間が透明にならないように)
+ *   2. <rect fill="url(#g-i)"> を color_index 降順で並べる
+ *      (CSS と違って SVG は後に描いた方が前面なので、降順で並べると
+ *      最後に主色が描かれ末色が背面…と逆になる。色 index が大きい方を
+ *      前面に出したいので、ここでは color_index 昇順で並べて末色を最後に
+ *      描く)
+ */
+function buildScatterSvg(
   colors: string[],
   points: NonNullable<CardData["card_color"]["scatter_points"]>,
-): string {
-  // 各点を「外周の見える領域」へ投影してから描画する。AI が指定した面積比を
-  // 縁の中で正しく表現するため。projectPointsToFrame の意図はその docstring 参照。
+): React.ReactElement {
   const framePoints = projectPointsToFrame(points);
-
-  // CSS の複数 background は配列の先頭が最前面。末色（colors の後ろ寄りの
-  // index）は面積が小さい差し色なので、点が重なったときに主色・副色に
-  // 埋もれてしまう。color_index の降順で並べて、末色 → 副色 → 主色 の
-  // 順に描画することで、小さい差し色が最前面に出て役割を果たせる。
+  // SVG は後に描いた要素が前面 (z-index 順) なので、末色 (color_index 大) を
+  // 後に描くために昇順で並べる。CSS 旧実装は前から後ろへ背面に向かう順序
+  // だったが、SVG ではこれが逆になる点に注意。
   const sortedPoints = framePoints
     .slice()
-    .sort((a, b) => b.color_index - a.color_index);
-  const layers = sortedPoints.map((p) => {
-    const color = colors[p.color_index] ?? colors[0];
-    const pure = Math.round(p.radius * SCATTER_PURE_RATIO);
-    return `radial-gradient(circle at ${p.x}% ${p.y}%, ${color} 0%, ${color} ${pure}%, transparent ${p.radius}%)`;
-  });
-  // 最後に主色のベタ塗りを敷いて、点の隙間が透明にならないようにする
+    .sort((a, b) => a.color_index - b.color_index);
   const baseColor = colors[0] ?? "#1a1a1a";
-  return `${layers.join(", ")}, ${baseColor}`;
+  const pureRatioPct = Math.round(SCATTER_PURE_RATIO * 100);
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      aria-hidden
+    >
+      <defs>
+        {sortedPoints.map((p, i) => {
+          const color = colors[p.color_index] ?? baseColor;
+          return (
+            <radialGradient
+              key={i}
+              id={`faselu-scatter-${i}`}
+              cx={`${p.x}%`}
+              cy={`${p.y}%`}
+              r={`${p.radius}%`}
+            >
+              <stop offset="0%" stopColor={color} stopOpacity="1" />
+              <stop
+                offset={`${pureRatioPct}%`}
+                stopColor={color}
+                stopOpacity="1"
+              />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </radialGradient>
+          );
+        })}
+      </defs>
+      {/* 主色のベタ塗り (点の隙間が透明にならないように) */}
+      <rect width="100" height="100" fill={baseColor} />
+      {/* 各点を radialGradient で塗る */}
+      {sortedPoints.map((_, i) => (
+        <rect
+          key={i}
+          width="100"
+          height="100"
+          fill={`url(#faselu-scatter-${i})`}
+        />
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * gradient_type が "scatter" かつ scatter_points が有効かを判定する。
+ */
+function isScatterMode(color: CardData["card_color"]): boolean {
+  const { gradient_type, colors, scatter_points } = color;
+  if (gradient_type !== "scatter") return false;
+  if (!Array.isArray(scatter_points) || scatter_points.length === 0)
+    return false;
+  return scatter_points.every(
+    (p) =>
+      typeof p?.color_index === "number" &&
+      p.color_index >= 0 &&
+      p.color_index < colors.length &&
+      typeof p?.x === "number" &&
+      typeof p?.y === "number" &&
+      typeof p?.radius === "number",
+  );
 }
 
 /**
@@ -185,26 +253,14 @@ function buildBarFromScatter(color: CardData["card_color"]): string {
 }
 
 function buildGradient(color: CardData["card_color"]): string {
-  const { gradient_type, direction, colors, stops, scatter_points } = color;
+  const { gradient_type, direction, colors, stops } = color;
   if (!colors || colors.length === 0) return "#1a1a1a";
   if (colors.length === 1) return colors[0];
 
-  // scatter モード: scatter_points が有効なら絵画的混色を組み立てる
-  if (
-    gradient_type === "scatter" &&
-    Array.isArray(scatter_points) &&
-    scatter_points.length > 0 &&
-    scatter_points.every(
-      (p) =>
-        typeof p?.color_index === "number" &&
-        p.color_index >= 0 &&
-        p.color_index < colors.length &&
-        typeof p?.x === "number" &&
-        typeof p?.y === "number" &&
-        typeof p?.radius === "number",
-    )
-  ) {
-    return buildScatterBackground(colors, scatter_points);
+  // scatter モードは SVG で描画するため、CSS 側は主色のベタ塗りだけを返す。
+  // 実際の散布点は <svg> オーバーレイで描く (buildScatterSvg を参照)。
+  if (isScatterMode(color)) {
+    return colors[0] ?? "#1a1a1a";
   }
 
   const hasValidStops =
@@ -377,16 +433,22 @@ export function Card({ data, date, ref }: Props) {
     11,
   );
 
+  const scatter =
+    isScatterMode(data.card_color) && data.card_color.scatter_points
+      ? buildScatterSvg(data.card_color.colors, data.card_color.scatter_points)
+      : null;
+
   return (
     <div
       ref={ref}
-      className="rounded-[28px] p-[22px] w-[420px] min-h-[560px]"
+      className="rounded-[28px] p-[22px] w-[420px] min-h-[560px] relative overflow-hidden"
       style={{
         background: buildGradient(data.card_color),
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <div className="paper-dark font-serif-jp rounded-[12px] w-full min-h-[516px] p-[28px_24px] flex flex-col">
+      {scatter}
+      <div className="paper-dark font-serif-jp rounded-[12px] w-full min-h-[516px] p-[28px_24px] flex flex-col relative">
         <div className="flex items-start justify-between mb-[6px]">
           <div
             className="text-[10px] tracking-[0.15em]"

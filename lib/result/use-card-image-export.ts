@@ -22,16 +22,26 @@ export function useCardImageExport(
       }
       const { toBlob } = await import("html-to-image");
       const node = cardRef.current;
-      // 初回はキャッシュが効かないことがあるので 2 回試行する
-      await toBlob(node, { pixelRatio: 1, cacheBust: true }).catch(() => null);
+      // requestAnimationFrame でレイアウト確定を保証してから撮る。
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      // ResponsiveCardWrapper が画面幅に応じて scale をかけている場合、
+      // html-to-image のキャプチャ範囲が変形済みサイズになって
+      // カード下部・側面が欠ける問題があるため、本来の (420 x 実高さ) を
+      // 明示する。style.transform で scale をリセットして本来サイズで撮る。
+      const cardWidth = node.offsetWidth;
+      const cardHeight = node.offsetHeight;
       const blob = await toBlob(node, {
         pixelRatio: 3,
         cacheBust: true,
-        canvasWidth: node.offsetWidth * 3,
-        canvasHeight: node.offsetHeight * 3,
-        backgroundColor: "#0e0e10",
+        width: cardWidth,
+        height: cardHeight,
+        // 背景色を指定しないことで、カードの角丸の外側を透明にする。
+        // 透過 PNG として書き出されるので、Instagram ストーリーや LP に
+        // 載せたときにカードの形状だけが浮かぶ。
         style: {
-          transform: "scale(1)",
+          transform: "none",
           transformOrigin: "top left",
         },
       });
