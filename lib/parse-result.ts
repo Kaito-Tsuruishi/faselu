@@ -23,7 +23,12 @@ export function stripFinalStart(text: string): string {
 }
 
 export function isSafetyTerminate(text: string): boolean {
-  return text.trim().startsWith(SAFETY_TERMINATE_TOKEN);
+  // モデルがプロンプトを完全には守らず、トークンの前に短い前置き
+  // （「お辛いですね。」「ご心配ですが」など）を付けて返してくるケースが
+  // あるため、startsWith ではなく includes で寛容に検知する。
+  // 偽陽性（通常会話の中にこのトークン文字列が偶然混入する）は実用上ほぼ
+  // 起きないため安全側に倒す。
+  return text.includes(SAFETY_TERMINATE_TOKEN);
 }
 
 export function hasReportDone(text: string): boolean {

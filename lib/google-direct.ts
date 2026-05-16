@@ -181,11 +181,18 @@ export async function streamGoogleResponse({
   const reader = upstream.body.getReader();
   const textId = `gemma-text-${Date.now()}`;
 
-  // 対話モードでは `<<READY_FOR_FINAL>>` を検知する。
-  // 最終分析モードでは通常出力を素通しする（モデルがプロンプト指示通り
-  // `## あなたという人間の構造` から書き始める想定）。
-  const SENTINEL =
-    mode === "dialogue" ? "<<READY_FOR_FINAL>>" : null;
+  // モード別に検知する SENTINEL（複数）。
+  // - 安全弁 <<SAFETY_TERMINATE>> はどのモードでも検知する。検知時はトークン
+  //   より前の本文を破棄してフロントには SENTINEL 文字列だけを流す。これで
+  //   モデルが前置きを書いてしまっても、フロントは安全弁発火を確実に検知できる。
+  // - 対話モードでは <<READY_FOR_FINAL>> も検知。これも前置き破棄 + トークン
+  //   だけ流す。
+  // 最終分析モードでは通常出力（レポート本文）は素通しするので、
+  // SAFETY_TERMINATE のみが SENTINEL になる。
+  const SAFETY_TOKEN = "<<SAFETY_TERMINATE>>";
+  const READY_TOKEN = "<<READY_FOR_FINAL>>";
+  const sentinels: string[] =
+    mode === "dialogue" ? [SAFETY_TOKEN, READY_TOKEN] : [SAFETY_TOKEN];
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -196,16 +203,14 @@ export async function streamGoogleResponse({
       let textStarted = false;
       let buf = "";
 
-      // SENTINEL 制御（対話モードのみ）。
-      // - sentinelSeen=false の間、出力末尾が SENTINEL のプレフィックスに
-      //   一致しうる範囲だけを `pending` に保留してから残りを流す。
+      // SENTINEL 制御。
+      // - sentinelSeen=false の間、出力末尾が SENTINEL のいずれかのプレフィックス
+      //   に一致しうる範囲だけを `pending` に保留してから残りを流す。
       //   トークン直前の前置き文がチラ見えしないようにする一方、通常チャットでは
       //   保留が数文字以内で済むためストリーミング体感は維持される。
-      // - 一度 SENTINEL が見つかったら、それ以前に出力されたテキストは全部破棄して
-      //   クライアントには SENTINEL 文字列だけを流す。それ以降のテキストも破棄。
-      //   こうしてフロントは「対話バブルが真っ白 → 最後にトークンだけ届く」
-      //   という挙動になり、READY_FOR_FINAL の検知後すぐ次のターン（レポート）へ
-      //   遷移できる。
+      // - 一度 SENTINEL のどれかが見つかったら、それ以前に出力されたテキストは
+      //   全部破棄して、クライアントにはそのトークン文字列だけを流す。それ以降の
+      //   テキストも破棄。
       let sentinelSeen = false;
       let pending = "";
 
@@ -222,8 +227,9 @@ export async function streamGoogleResponse({
       const emitText = (raw: string) => {
         if (!raw) return;
 
-        // sentinel 監視が無いモード（final）は素通し。
-        if (!SENTINEL) {
+        // sentinel 候補が無いモードは素通し（実質、SAFETY_TOKEN だけ監視するモードは
+        // 常に最低 1 つは sentinel があるので、このパスは現状到達しないが念のため）。
+        if (sentinels.length === 0) {
           if (!textStarted) {
             writeEvent({ type: "text-start", id: textId });
             textStarted = true;
@@ -237,22 +243,37 @@ export async function streamGoogleResponse({
 
         pending += raw;
 
-        const tokenIdx = pending.indexOf(SENTINEL);
-        if (tokenIdx >= 0) {
+        // 複数 SENTINEL のうち、最も早く出現するものを探す。
+        let earliestIdx = -1;
+        let matchedToken: string | null = null;
+        for (const token of sentinels) {
+          const idx = pending.indexOf(token);
+          if (idx >= 0 && (earliestIdx === -1 || idx < earliestIdx)) {
+            earliestIdx = idx;
+            matchedToken = token;
+          }
+        }
+
+        if (matchedToken !== null) {
           sentinelSeen = true;
-          // SENTINEL 直前までの本文は破棄。クライアントには SENTINEL 文字列だけ流す。
+          // SENTINEL 直前までの本文は破棄。クライアントにはトークン文字列だけ流す。
           if (!textStarted) {
             writeEvent({ type: "text-start", id: textId });
             textStarted = true;
           }
-          writeEvent({ type: "text-delta", id: textId, delta: SENTINEL });
+          writeEvent({ type: "text-delta", id: textId, delta: matchedToken });
           pending = "";
           return;
         }
 
-        // トークン全体は見つからない。末尾が部分一致しうる分だけ保留し、
+        // どのトークンも見つからない。末尾が部分一致しうる分だけ保留し、
         // それより前は通常応答として確定 → 流す。
-        const keep = longestPrefixMatchLen(pending, SENTINEL);
+        // すべての sentinel に対する一致候補長の最大値をとる。
+        let keep = 0;
+        for (const token of sentinels) {
+          const n = longestPrefixMatchLen(pending, token);
+          if (n > keep) keep = n;
+        }
         const flushable = pending.slice(0, pending.length - keep);
         pending = pending.slice(pending.length - keep);
         if (flushable) {
@@ -297,8 +318,8 @@ export async function streamGoogleResponse({
         }
 
         // ストリーム終了。SENTINEL を見ずに pending が残っている場合は
-        // 通常応答の末尾なのでそのまま流す（対話モードのみで発生）。
-        if (SENTINEL && !sentinelSeen && pending) {
+        // 通常応答の末尾なのでそのまま流す。
+        if (sentinels.length > 0 && !sentinelSeen && pending) {
           if (!textStarted) {
             writeEvent({ type: "text-start", id: textId });
             textStarted = true;
