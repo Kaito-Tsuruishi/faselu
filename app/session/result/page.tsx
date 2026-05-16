@@ -41,7 +41,7 @@ export default function ResultPage() {
 
   if (!result) {
     return (
-      <main className="flex-1 flex items-center justify-center">
+      <main className="calm-bg flex-1 flex items-center justify-center">
         <p className="text-[13px]" style={{ color: "var(--color-muted-3)" }}>
           読み込み中…
         </p>
@@ -50,8 +50,9 @@ export default function ResultPage() {
   }
 
   return (
-    <main className="flex-1 w-full max-w-[820px] mx-auto px-4 sm:px-6 py-12">
-      <header className="mb-12 flex items-baseline justify-between gap-4">
+    <main className="calm-bg flex-1 w-full">
+      <div className="w-full max-w-[820px] mx-auto px-4 sm:px-6 py-12">
+        <header className="mb-12 flex items-baseline justify-between gap-4">
         <div className="flex items-baseline gap-3">
           <a
             href="/"
@@ -114,6 +115,7 @@ export default function ResultPage() {
         </button>
       </footer>
 
+      </div>
       {toast.message && <Toast message={toast.message} />}
     </main>
   );
