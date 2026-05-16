@@ -1,6 +1,5 @@
 "use client";
 
-import { type UIMessage } from "ai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChatBubble, TypingBubble } from "@/components/ChatBubble";
@@ -14,7 +13,6 @@ import { Toast } from "@/components/session/Toast";
 import {
   FINAL_MODE_MARKER,
   FINAL_REPORT_TRIGGER,
-  FINAL_START_TOKEN,
   NEXT_TURN_CARD_JSON_TOKEN,
   READY_FOR_FINAL_TOKEN,
   REPORT_DONE_TOKEN,
@@ -23,27 +21,30 @@ import {
   looksTruncated,
   parseCardJson,
 } from "@/lib/parse-result";
+import { stripTopicTag } from "@/lib/dialogue-phase";
 import { OPENING_WARNING } from "@/lib/prompt";
 import { clearHistory } from "@/lib/session/history-storage";
+import {
+  CONTINUE_TRIGGER,
+  REPORT_RETRY_PREFIX,
+  SESSION_START_TRIGGER,
+} from "@/lib/triggers";
+import { textOf } from "@/lib/ui-message";
 import { useEscapeKey } from "@/lib/session/use-escape-key";
 import { useFinalAnalysis } from "@/lib/session/use-final-analysis";
 import { useScrollHint } from "@/lib/session/use-scroll-hint";
 import { useSessionChat } from "@/lib/session/use-session-chat";
 import { useStallDetector } from "@/lib/session/use-stall-detector";
+import { useStickToBottom } from "@/lib/session/use-stick-to-bottom";
 import { useThinkingDelay } from "@/lib/session/use-thinking-delay";
 import { useToast } from "@/lib/session/use-toast";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
-const textOf = (m: UIMessage): string =>
-  m.parts
-    .filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join("");
+const REPORT_RETRY_INSTRUCTION = `${REPORT_RETRY_PREFIX}。最初の見出し（## あなたという人間の構造）から残りすべてのセクションを書き直して、末尾に <<REPORT_DONE>> を必ず付けてください。`;
 
 const isFinalModeText = (text: string): boolean =>
   text.includes(READY_FOR_FINAL_TOKEN) ||
-  text.includes(FINAL_START_TOKEN) ||
   text.includes(FINAL_MODE_MARKER) ||
   text.includes(REPORT_DONE_TOKEN) ||
   /```json/.test(text);
@@ -55,7 +56,6 @@ export default function SessionPage() {
   const [askExit, setAskExit] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [hadAbort, setHadAbort] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const toast = useToast();
@@ -147,84 +147,7 @@ export default function SessionPage() {
     }
   }, [status, lastAssistant, lastAssistantText, isFinalizing]);
 
-  // LINE 風スクロール。
-  // - ユーザーが「最下部付近」に居る限り、新着メッセージや段落フェードインで自動追従する
-  // - ユーザーが手動で上にスクロールしたら追従を止める
-  // - プログラム由来のスクロールは無視する（自動追従後の scroll イベントで誤って解除しないため）
-  // - 初期表示（オープニング宣言のみ）はユーザーが最初の発言をするまで上端固定。
-  //   宣言文がスマホのファーストビューに収まらないと、最初の数行が画面外に流れて
-  //   ユーザーが気付けないため。
-  // DOM の高さ変化を ResizeObserver/MutationObserver で監視し、
-  // messages の更新タイミングに依存せず段落フェードインのたびに追従させる。
-  const stickToBottomRef = useRef(false);
-  const programmaticScrollUntilRef = useRef(0);
-
-  // ユーザーが最初の発言をした瞬間に、下端追従モードへ切り替える。
-  useEffect(() => {
-    if (userHasSpoken) stickToBottomRef.current = true;
-  }, [userHasSpoken]);
-
-  useEffect(() => {
-    const container = scrollRef.current;
-    if (!container) return;
-
-    const goToBottom = () => {
-      programmaticScrollUntilRef.current = Date.now() + 800;
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: "smooth",
-      });
-    };
-
-    const onScroll = () => {
-      if (Date.now() < programmaticScrollUntilRef.current) return;
-      const distFromBottom =
-        container.scrollHeight - container.clientHeight - container.scrollTop;
-      stickToBottomRef.current = distFromBottom < 100;
-    };
-    container.addEventListener("scroll", onScroll, { passive: true });
-
-    const maybeFollow = () => {
-      if (!stickToBottomRef.current) return;
-      const distFromBottom =
-        container.scrollHeight - container.clientHeight - container.scrollTop;
-      if (distFromBottom > 0) goToBottom();
-    };
-
-    // 子要素のサイズ変化（段落の出現、フェードインで高さが伸びる等）
-    const ro = new ResizeObserver(maybeFollow);
-    Array.from(container.children).forEach((child) => ro.observe(child));
-    // 子要素の追加・削除（新しいバブルが追加される）も監視
-    const mo = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        m.addedNodes.forEach((n) => {
-          if (n instanceof Element) ro.observe(n);
-        });
-      }
-      maybeFollow();
-    });
-    mo.observe(container, { childList: true });
-
-    return () => {
-      container.removeEventListener("scroll", onScroll);
-      ro.disconnect();
-      mo.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    const last = messages[messages.length - 1];
-    const container = scrollRef.current;
-    if (!last || !container) return;
-    if (last.role === "user") {
-      stickToBottomRef.current = true;
-      programmaticScrollUntilRef.current = Date.now() + 800;
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, [messages]);
+  const scrollRef = useStickToBottom({ enabled: userHasSpoken, messages });
 
   useEscapeKey(askExit, () => setAskExit(false));
 
@@ -258,19 +181,17 @@ export default function SessionPage() {
     }
     // 最終分析モードのターン 1 で途切れた場合: フォーマットを守るよう明示的に指示
     if (isFinalizing) {
-      sendMessage({
-        text: "直前の最終分析レポートが途中で切れています。最初の見出し（## あなたという人間の構造）から残りすべてのセクションを書き直して、末尾に <<REPORT_DONE>> を必ず付けてください。",
-      });
+      sendMessage({ text: REPORT_RETRY_INSTRUCTION });
       return;
     }
     // 最初の問い (AI 1 ターン目) を取り損ねた場合: AI 応答が一切無いのに hadAbort が立つ。
     // ここで「続きを書いて」だと AI が文脈不明で固まるので、最初のトリガを送り直す。
     if (!aiHasReplied) {
-      sendMessage({ text: "準備できました。はじめてください。" });
+      sendMessage({ text: SESSION_START_TRIGGER });
       return;
     }
     // 通常の会話で途切れた場合
-    sendMessage({ text: "直前の発言の続きを、そのまま書いてください。" });
+    sendMessage({ text: CONTINUE_TRIGGER });
   };
 
   const confirmExit = () => {
@@ -338,14 +259,12 @@ export default function SessionPage() {
         {messages.map((m) => {
           const text = textOf(m);
           if (!text) return null;
-          if (text === "準備できました。はじめてください。") return null;
+          if (text === SESSION_START_TRIGGER) return null;
           if (text === NEXT_TURN_CARD_JSON_TOKEN) return null;
           if (text === FINAL_REPORT_TRIGGER) return null;
           // 「続きを表示」で送る再開用ユーザー発言は履歴に出さない
-          if (text === "直前の発言の続きを、そのまま書いてください。")
-            return null;
-          if (text.startsWith("直前の最終分析レポートが途中で切れています"))
-            return null;
+          if (text === CONTINUE_TRIGGER) return null;
+          if (text.startsWith(REPORT_RETRY_PREFIX)) return null;
           if (m.id === "opening" && aiHasReplied) return null;
           if (m.role === "assistant" && isFinalModeText(text)) return null;
           // ストリーミング中の最新 AI バブルだけ、フェードイン演出する。
@@ -354,6 +273,10 @@ export default function SessionPage() {
             m.role === "assistant" &&
             m.id === lastAssistantId &&
             (status === "submitted" || status === "streaming");
+          // assistant の応答末尾には <<TOPIC:〜>> タグが付いている可能性がある。
+          // 履歴には残してサーバー側の領域判定に使うが、表示時には剥がす。
+          const displayText =
+            m.role === "assistant" ? stripTopicTag(text) : text;
           if (m.id === "opening") {
             return (
               <div key={m.id}>
@@ -365,7 +288,7 @@ export default function SessionPage() {
                 </p>
                 <ChatBubble
                   role="assistant"
-                  text={text}
+                  text={displayText}
                   fade={isStreamingAssistant}
                 />
               </div>
@@ -375,7 +298,7 @@ export default function SessionPage() {
             <ChatBubble
               key={m.id}
               role={m.role === "user" ? "user" : "assistant"}
-              text={text}
+              text={displayText}
               fade={isStreamingAssistant}
             />
           );
@@ -404,7 +327,7 @@ export default function SessionPage() {
             type="button"
             onClick={() => {
               if (status !== "ready") return;
-              sendMessage({ text: "準備できました。はじめてください。" });
+              sendMessage({ text: SESSION_START_TRIGGER });
             }}
             disabled={status !== "ready"}
             className="tap-target font-serif-jp text-[17px] tracking-[0.2em] gold-underline pb-[4px] disabled:opacity-40"

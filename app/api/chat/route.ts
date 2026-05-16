@@ -8,7 +8,9 @@ import {
   READY_FOR_FINAL_TOKEN,
   REPORT_DONE_TOKEN,
 } from "@/lib/parse-result";
+import { inferDialogueContext } from "@/lib/dialogue-phase";
 import { streamGoogleResponse } from "@/lib/google-direct";
+import { textOf } from "@/lib/ui-message";
 
 export const maxDuration = 60;
 
@@ -24,13 +26,6 @@ const FALLBACK_MODEL =
 const DIALOGUE_MODEL =
   process.env.FASELU_DIALOGUE_MODEL ?? FALLBACK_MODEL;
 const FINAL_MODEL = process.env.FASELU_FINAL_MODEL ?? FALLBACK_MODEL;
-
-function textOf(msg: UIMessage): string {
-  return msg.parts
-    .filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join("");
-}
 
 function detectMode(messages: UIMessage[]): PromptMode {
   // 直近の user メッセージで明示的に final トリガが指定されていれば final。
@@ -64,7 +59,11 @@ function detectMode(messages: UIMessage[]): PromptMode {
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
   const mode = detectMode(messages);
-  const system = buildSystemPrompt(mode);
+  // 対話モードのときだけ、メッセージ履歴からフェーズと領域カバー状態を推論して
+  // プロンプトに反映する。最終分析モードでは履歴の流れが固定なのでコンテキストは不要。
+  const dialogueContext =
+    mode === "dialogue" ? inferDialogueContext(messages) : undefined;
+  const system = buildSystemPrompt(mode, dialogueContext);
   const modelMessages = await convertToModelMessages(messages);
 
   // Google モデル（gemini-* / gemma-*）は無料 tier で 500/503 transient エラーが

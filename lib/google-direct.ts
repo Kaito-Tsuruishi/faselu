@@ -182,13 +182,14 @@ export async function streamGoogleResponse({
   const textId = `gemma-text-${Date.now()}`;
 
   // モード別に検知する SENTINEL（複数）。
-  // - 安全弁 <<SAFETY_TERMINATE>> はどのモードでも検知する。検知時はトークン
-  //   より前の本文を破棄してフロントには SENTINEL 文字列だけを流す。これで
-  //   モデルが前置きを書いてしまっても、フロントは安全弁発火を確実に検知できる。
-  // - 対話モードでは <<READY_FOR_FINAL>> も検知。これも前置き破棄 + トークン
-  //   だけ流す。
-  // 最終分析モードでは通常出力（レポート本文）は素通しするので、
-  // SAFETY_TERMINATE のみが SENTINEL になる。
+  // 検知時はトークンより前の本文を破棄してフロントには SENTINEL 文字列だけを流す。
+  // それ以降のテキストも全部破棄。
+  // フロントが検知してセッション状態を切り替える系のトークン
+  // （SAFETY_TERMINATE / READY_FOR_FINAL）に使う。
+  //
+  // TOPIC タグはサーバー側で剥がさず履歴に残す方針。サーバーがメッセージ履歴
+  // からフェーズ推論するときにタグを使うため、剥がすとフェーズ判定が壊れる。
+  // フロント表示時に stripTopicTag() で剥がす。
   const SAFETY_TOKEN = "<<SAFETY_TERMINATE>>";
   const READY_TOKEN = "<<READY_FOR_FINAL>>";
   const sentinels: string[] =
@@ -227,17 +228,6 @@ export async function streamGoogleResponse({
       const emitText = (raw: string) => {
         if (!raw) return;
 
-        // sentinel 候補が無いモードは素通し（実質、SAFETY_TOKEN だけ監視するモードは
-        // 常に最低 1 つは sentinel があるので、このパスは現状到達しないが念のため）。
-        if (sentinels.length === 0) {
-          if (!textStarted) {
-            writeEvent({ type: "text-start", id: textId });
-            textStarted = true;
-          }
-          writeEvent({ type: "text-delta", id: textId, delta: raw });
-          return;
-        }
-
         // 既に SENTINEL を検知済み → 以降はすべて破棄。
         if (sentinelSeen) return;
 
@@ -256,7 +246,7 @@ export async function streamGoogleResponse({
 
         if (matchedToken !== null) {
           sentinelSeen = true;
-          // SENTINEL 直前までの本文は破棄。クライアントにはトークン文字列だけ流す。
+          // SENTINEL 直前までの本文は破棄、トークン文字列だけ流す。それ以降も破棄。
           if (!textStarted) {
             writeEvent({ type: "text-start", id: textId });
             textStarted = true;
