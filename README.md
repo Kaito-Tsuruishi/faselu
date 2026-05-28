@@ -57,10 +57,10 @@ Faselu はその逆を狙っています。
 セッションは内部的に 2 つのモードに分かれて動きます。
 
 **対話モード（素材集めフェーズ）**
-AI は素材を集めることに専念し、過剰な解釈や心理学的なラベル貼りは控えます。基本は **simple reflection**（言葉に近い反映）で受け止め、すぐに次の問いを置きます。9 つの領域（性格・人間関係・恋愛・価値観・将来像・コンプレックス・ストレス要因・他人への違和感・自分のこだわり）にバランスよく触れていきます。
+AI は素材を集めることに専念し、過剰な解釈や心理学的なラベル貼りは控えます。基本は **simple reflection**（言葉に近い反映）で受け止め、すぐに次の問いを置きます。7 つの領域（性格・人間関係・恋愛・価値観・将来像・コンプレックス・ストレス要因）にバランスよく触れていきます。
 
 **最終分析モード**
-9 領域に十分触れたと AI が判断したタイミングで、自動的に最終分析に移行します。ここで初めて対話全体を統合し、踏み込んだ分析を返します。
+7 領域に十分触れたと AI が判断したタイミングで、自動的に最終分析に移行します。ここで初めて対話全体を統合し、踏み込んだ分析を返します。
 
 ### 3. 4 つの観点から分析する
 
@@ -96,7 +96,7 @@ AI は素材を集めることに専念し、過剰な解釈や心理学的な�
 
 カードの縁のグラデーションは、AI が分析テキストから核となる性質を 2〜4 個抽出し、それぞれを色に翻訳して組み合わせます。色域に縛りはなく、淡い色・鮮やかな色・パステル・ネオン・メタリックまで含めて、毎回その人専用の色が決まります。
 
-線形・放射状・円錐などのグラデーションパターンも、その人の性質に合わせて選ばれます。
+色は複数の位置に散らして絵画的に混色させる方式（scatter）で描画され、散布点の数・位置・大きさもその人の内的構造に合わせて決まります。同じ色の組み合わせでも配置が違えば全く別の一枚絵になります。
 
 ---
 
@@ -223,10 +223,13 @@ components/
     SafetyTerminatedView.tsx
     Toast.tsx
 lib/
-  prompt.ts                 # COMMON_HEADER / DIALOGUE_PROMPT / FINAL_PROMPT
+  prompt.ts                 # COMMON_HEADER / DIALOGUE_BASE / FINAL_*_BODY のプロンプト定義
+  dialogue-phase.ts         # 履歴からフェーズ・領域カバー状態を推論しプロンプトを組む
+  triggers.ts               # フロント ↔ サーバー ↔ AI の内部トリガ文字列の一元定義
   google-direct.ts          # Google Generative AI API の直叩き + リトライ
   parse-report.ts           # 分析レポートのパース
   parse-result.ts           # トークン定数とレポート/カードのパース
+  ui-message.ts             # UIMessage から text パーツを取り出すヘルパ
   debug-mock.ts             # ダミー結果（API 不要のデバッグ用）
   types.ts                  # 型定義
   session/                  # セッション画面の hooks
@@ -238,6 +241,7 @@ lib/
     use-scroll-hint.ts
     use-escape-key.ts
     use-stable-callback.ts
+    use-stick-to-bottom.ts
     history-storage.ts
   result/                   # 結果画面の hooks
     use-card-image-export.ts
